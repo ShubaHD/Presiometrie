@@ -14,7 +14,7 @@ export async function POST(req: Request, { params }: Params) {
     if (!auth.ok) return auth.res;
     const { supabase } = auth;
     const { testId } = await params;
-    const actor = getLabActorFromRequest(req);
+    const actor = getLabActorFromRequest(req, { fallbackUserId: auth.user.id });
     const body = (await req.json().catch(() => ({}))) as { ttlMinutes?: number };
     const ttl = Math.min(480, Math.max(5, Number(body.ttlMinutes) || DEFAULT_TTL_MIN));
     const { data: row, error: fetchErr } = await supabase

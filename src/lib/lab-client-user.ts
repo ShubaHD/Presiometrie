@@ -11,7 +11,9 @@ export function getLabUserFromStorage(): { userId: string; displayName: string }
     "Laborator";
   let userId = window.localStorage.getItem(LS_ID)?.trim() || "";
   if (!userId) {
-    userId = process.env.NEXT_PUBLIC_ROCA_USER_ID?.trim() || displayName;
+    // IMPORTANT: do NOT fall back to displayName here — displayName is not a UUID and
+    // would be sent as `x-roca-user-id`, breaking DB columns typed as uuid.
+    userId = process.env.NEXT_PUBLIC_ROCA_USER_ID?.trim() || "";
   }
   return { userId, displayName };
 }

@@ -12,7 +12,7 @@ export async function DELETE(req: Request, { params }: Params) {
     if (!auth.ok) return auth.res;
     const { supabase } = auth;
     const { testId, fileId } = await params;
-    const actor = getLabActorFromRequest(req);
+    const actor = getLabActorFromRequest(req, { fallbackUserId: auth.user.id });
 
     const { data: meta, error: metaErr } = await supabase
       .from("tests")

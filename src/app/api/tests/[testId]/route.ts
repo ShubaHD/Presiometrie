@@ -85,7 +85,7 @@ export async function PATCH(req: Request, { params }: Params) {
     if (!auth.ok) return auth.res;
     const { supabase } = auth;
     const { testId } = await params;
-    const actor = getLabActorFromRequest(req);
+    const actor = getLabActorFromRequest(req, { fallbackUserId: auth.user.id });
     const body = (await req.json()) as Record<string, unknown>;
 
     const { data: existing, error: exErr } = await supabase

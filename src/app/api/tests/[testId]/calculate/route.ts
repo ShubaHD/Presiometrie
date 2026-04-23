@@ -24,7 +24,7 @@ export async function POST(req: Request, { params }: Params) {
     if (!auth.ok) return auth.res;
     const { supabase } = auth;
     const { testId } = await params;
-    const actor = getLabActorFromRequest(req);
+    const actor = getLabActorFromRequest(req, { fallbackUserId: auth.user.id });
 
     const { data: test, error: tErr } = await supabase
       .from("tests")

@@ -12,7 +12,7 @@ export async function POST(req: Request, { params }: Params) {
     if (!auth.ok) return auth.res;
     const { supabase } = auth;
     const { testId } = await params;
-    const actor = getLabActorFromRequest(req);
+    const actor = getLabActorFromRequest(req, { fallbackUserId: auth.user.id });
     const body = (await req.json().catch(() => ({}))) as { force?: boolean };
     const { data: row, error: fetchErr } = await supabase
       .from("tests")
