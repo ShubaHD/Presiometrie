@@ -83,7 +83,6 @@ function axisDomainPadded(values: number[], padRatio = 0.06): [number, number] |
   return [lo - pad, hi + pad];
 }
 
-/** Ticks X pentru R (mm): valori pare din 2 în 2, acoperind domeniul afișat. */
 type ChartNavMode = "hand" | "cursor";
 
 function PresiometryChartZoomShell({
@@ -173,15 +172,36 @@ function PresiometryChartZoomShell({
   );
 }
 
-function xTicksEvery2Mm(domain: [number, number] | undefined, dataLo: number, dataHi: number): number[] {
+/** Ticks pe axa R sau δ (mm): preferință 0,5 mm; dacă ar fi prea dese, trece la 1 mm. */
+function xTicksHalfMmOrCoarser(
+  domain: [number, number] | undefined,
+  dataLo: number,
+  dataHi: number,
+  maxTicks = 55,
+): number[] {
   const lo = domain ? Math.min(domain[0], domain[1]) : Math.min(dataLo, dataHi);
   const hi = domain ? Math.max(domain[0], domain[1]) : Math.max(dataLo, dataHi);
   if (!Number.isFinite(lo) || !Number.isFinite(hi) || hi < lo) return [];
-  const start = Math.floor(lo / 2) * 2;
-  const end = Math.ceil(hi / 2) * 2;
+  const halfLo = Math.floor(lo * 2);
+  const halfHi = Math.ceil(hi * 2);
+  if (halfHi - halfLo + 1 <= maxTicks) {
+    const ticks: number[] = [];
+    for (let h = halfLo; h <= halfHi; h++) ticks.push(h / 2);
+    return ticks;
+  }
+  const mmLo = Math.floor(lo);
+  const mmHi = Math.ceil(hi);
   const ticks: number[] = [];
-  for (let v = start; v <= end + 1e-9; v += 2) ticks.push(Math.round(v));
+  for (let m = mmLo; m <= mmHi; m++) ticks.push(m);
   return ticks;
+}
+
+function formatMmAxisTick(v: unknown): string {
+  const n = typeof v === "number" ? v : Number(v);
+  if (!Number.isFinite(n)) return "";
+  const r = Math.round(n * 10) / 10;
+  const ri = Math.round(r);
+  return Math.abs(r - ri) < 1e-5 ? String(ri) : r.toFixed(1);
 }
 
 function toIndex(s: string): number | null {
@@ -203,7 +223,14 @@ function buildEffectiveManual(
     mode: "auto" | "manual";
     load1_from: string;
     load1_to: string;
-    loops: Array<{ unload_from: string; unload_to: string; reload_from: string; reload_to: string }>;
+    loops: Array<{
+      unload_from: string;
+      unload_to: string;
+      reload_from: string;
+      reload_to: string;
+      gur_from: string;
+      gur_to: string;
+    }>;
   },
   saved: PresiometryManualSettings | null,
   xKind: "radius_mm" | "volume_cm3",
@@ -213,6 +240,7 @@ function buildEffectiveManual(
   const loops = draft.loops.map((row) => ({
     unload: indexRange(row.unload_from, row.unload_to),
     reload: indexRange(row.reload_from, row.reload_to),
+    gur: indexRange(row.gur_from, row.gur_to),
   }));
   return { mode: "manual", x_kind: xKind, load1, loops };
 }
@@ -341,8 +369,16 @@ export function TestWorkspace({
     const xs = chartSeries.pr.map((p) => p.x);
     const d0 = Math.min(...xs);
     const d1 = Math.max(...xs);
-    return xTicksEvery2Mm(chartSeries.prXDomain, d0, d1);
+    return xTicksHalfMmOrCoarser(chartSeries.prXDomain, d0, d1);
   }, [xKind, chartSeries.pr, chartSeries.prXDomain]);
+
+  const pdrXAxisDeltaTicks = useMemo(() => {
+    if (xKind !== "radius_mm" || chartSeries.pdr.length === 0) return null;
+    const xs = chartSeries.pdr.map((p) => p.x);
+    const d0 = Math.min(...xs);
+    const d1 = Math.max(...xs);
+    return xTicksHalfMmOrCoarser(chartSeries.pdrXDomain, d0, d1);
+  }, [xKind, chartSeries.pdr, chartSeries.pdrXDomain]);
 
   const manualSettings = useMemo(() => {
     if (!test) return null;
@@ -360,6 +396,8 @@ export function TestWorkspace({
       unload_to: "",
       reload_from: "",
       reload_to: "",
+      gur_from: "",
+      gur_to: "",
     })),
   }));
 
@@ -379,6 +417,8 @@ export function TestWorkspace({
           unload_to: src?.unload ? String(src.unload.to) : "",
           reload_from: src?.reload ? String(src.reload.from) : "",
           reload_to: src?.reload ? String(src.reload.to) : "",
+          gur_from: src?.gur ? String(src.gur.from) : "",
+          gur_to: src?.gur ? String(src.gur.to) : "",
         };
       }),
     }));
@@ -397,7 +437,7 @@ export function TestWorkspace({
       return buildProgramARegressionSegments(pvPts, effectiveManual, loops);
     }
     if (okType === "presiometry_program_b") {
-      return { load1: null, loops: buildProgramBRegressionSegments(pvPts, effectiveManual, loops) };
+      return buildProgramBRegressionSegments(pvPts, effectiveManual, loops);
     }
     return null;
   }, [okType, curve, effectiveManual, chartSeries.nPoints]);
@@ -472,19 +512,33 @@ export function TestWorkspace({
       pushSeg(regressionSegments.load1, "L1");
       pushTan(regressionSegments.load1);
     }
-    regressionSegments.loops.forEach((pair, i) => {
-      if (pair.unload) {
-        pushSeg(pair.unload, `U${i + 1}`);
-        pushTan(pair.unload);
-      }
-      if (pair.reload) {
-        pushSeg(pair.reload, `R${i + 1}`);
-        pushTan(pair.reload);
-      }
-    });
+    if (okType === "presiometry_program_b") {
+      const loopsB = regressionSegments.loops as Array<{ gUr: PresiometryRegressionSegment | null }>;
+      loopsB.forEach((pair, i) => {
+        if (pair.gUr) {
+          pushSeg(pair.gUr, `UR${i + 1}`);
+          pushTan(pair.gUr);
+        }
+      });
+    } else {
+      const loopsA = regressionSegments.loops as Array<{
+        unload: PresiometryRegressionSegment | null;
+        reload: PresiometryRegressionSegment | null;
+      }>;
+      loopsA.forEach((pair, i) => {
+        if (pair.unload) {
+          pushSeg(pair.unload, `U${i + 1}`);
+          pushTan(pair.unload);
+        }
+        if (pair.reload) {
+          pushSeg(pair.reload, `R${i + 1}`);
+          pushTan(pair.reload);
+        }
+      });
+    }
 
     return { areasPr, areasPdr, tangentsPr, tangentsPdr };
-  }, [regressionSegments, curve, chartSeries.r0]);
+  }, [regressionSegments, curve, chartSeries.r0, okType]);
 
   type ChartPickTarget =
     | null
@@ -493,7 +547,9 @@ export function TestWorkspace({
     | { k: "unload_from"; loop: number }
     | { k: "unload_to"; loop: number }
     | { k: "reload_from"; loop: number }
-    | { k: "reload_to"; loop: number };
+    | { k: "reload_to"; loop: number }
+    | { k: "gur_from"; loop: number }
+    | { k: "gur_to"; loop: number };
 
   const [chartPick, setChartPick] = useState<ChartPickTarget>(null);
   const [chartNavPr, setChartNavPr] = useState<ChartNavMode>("cursor");
@@ -501,6 +557,38 @@ export function TestWorkspace({
 
   const showRegressionOverlays =
     manualDraft.mode === "auto" && (okType === "presiometry_program_a" || okType === "presiometry_program_b");
+
+  /** Puncte fixe pe grafic pentru indicii setați în mod Manual (rămân vizibile după click). */
+  const manualPickMarkers = useMemo(() => {
+    if (manualDraft.mode !== "manual" || chartSeries.pr.length === 0) {
+      return [] as Array<{ key: string; idx: number; label: string; fill: string; stroke: string }>;
+    }
+    const n = chartSeries.pr.length;
+    const out: Array<{ key: string; idx: number; label: string; fill: string; stroke: string }> = [];
+    const pushIf = (key: string, idxStr: string, fill: string, label: string) => {
+      if (!String(idxStr ?? "").trim()) return;
+      const idx = toIndex(idxStr);
+      if (idx == null || idx < 0 || idx >= n) return;
+      out.push({ key, idx, label, fill, stroke: "oklch(0.25 0.02 260 / 0.65)" });
+    };
+    if (okType === "presiometry_program_a" || okType === "presiometry_program_b") {
+      pushIf("mk-L1-from", manualDraft.load1_from, "oklch(0.62 0.22 280)", "L1·from");
+      pushIf("mk-L1-to", manualDraft.load1_to, "oklch(0.52 0.2 280)", "L1·to");
+    }
+    manualDraft.loops.forEach((row, i) => {
+      const bi = i + 1;
+      if (okType === "presiometry_program_b") {
+        pushIf(`mk-UR${bi}-f`, row.gur_from, "oklch(0.58 0.2 200)", `UR${bi}·from`);
+        pushIf(`mk-UR${bi}-t`, row.gur_to, "oklch(0.48 0.18 200)", `UR${bi}·to`);
+      } else {
+        pushIf(`mk-U${bi}-f`, row.unload_from, "oklch(0.62 0.2 35)", `U${bi}·from`);
+        pushIf(`mk-U${bi}-t`, row.unload_to, "oklch(0.52 0.18 35)", `U${bi}·to`);
+        pushIf(`mk-R${bi}-f`, row.reload_from, "oklch(0.55 0.18 155)", `R${bi}·from`);
+        pushIf(`mk-R${bi}-t`, row.reload_to, "oklch(0.48 0.16 155)", `R${bi}·to`);
+      }
+    });
+    return out;
+  }, [manualDraft.mode, manualDraft.load1_from, manualDraft.load1_to, manualDraft.loops, chartSeries.pr, okType]);
 
   const applyChartPickIndex = useCallback(
     (idx: number) => {
@@ -516,7 +604,10 @@ export function TestWorkspace({
             if (k === "unload_from") return { ...row, unload_from: String(idx) };
             if (k === "unload_to") return { ...row, unload_to: String(idx) };
             if (k === "reload_from") return { ...row, reload_from: String(idx) };
-            return { ...row, reload_to: String(idx) };
+            if (k === "reload_to") return { ...row, reload_to: String(idx) };
+            if (k === "gur_from") return { ...row, gur_from: String(idx) };
+            if (k === "gur_to") return { ...row, gur_to: String(idx) };
+            return row;
           });
           return { ...next, loops: rows };
         }
@@ -575,6 +666,7 @@ export function TestWorkspace({
             ? manualDraft.loops.map((l) => ({
                 unload: range(l.unload_from, l.unload_to),
                 reload: range(l.reload_from, l.reload_to),
+                gur: range(l.gur_from, l.gur_to),
               }))
             : [],
       };
@@ -926,16 +1018,20 @@ export function TestWorkspace({
                     ? `p–R (raw) și p–δ: δ = R − R așezare. Pentru sondă Ø${PMT_PROBE_DIAMETER_MM} mm, așezarea este la R = ${PMT_SEATING_R_MM_DEFAULT} mm (R = Ø/2); puteți suprascrie în «R la așezare» din măsurători.`
                     : "p–V și p–ΔV (Δ față de primul punct)."}
                 </span>
-                {(okType === "presiometry_program_a" || okType === "presiometry_program_b") && (
+                {okType === "presiometry_program_a" ? (
                   <span className="text-muted-foreground block">
-                    Legenda ISO (modul): <span className="font-medium">p</span> = presiune (kPa);{" "}
-                    <span className="font-medium">δ</span> = deplasare radială corectată;{" "}
-                    <span className="font-medium">G_L1</span> = modul de forfecare prima încărcare;{" "}
-                    <span className="font-medium">G_Ui</span> / <span className="font-medium">G_Ri</span> = modul pe
-                    descărcare / reîncărcare (bucle). Benzi = intervale folosite la regresie; linii punctate = tangente
-                    G.
+                    Legenda ISO (Program A): <span className="font-medium">p</span>, <span className="font-medium">δ</span>;{" "}
+                    <span className="font-medium">G_L1</span> prima încărcare; <span className="font-medium">G_Ui</span> /{" "}
+                    <span className="font-medium">G_Ri</span> descărcare / reîncărcare (30–70% sau manual). Benzi =
+                    intervale regresie; linii punctate = tangente.
                   </span>
-                )}
+                ) : okType === "presiometry_program_b" ? (
+                  <span className="text-muted-foreground block">
+                    Legenda ISO (Program B): <span className="font-medium">G_L1</span> prima încărcare (ca la A);{" "}
+                    <span className="font-medium">G_URi</span> = un singur modul pe buclă (regresie în bandă de presiune
+                    la mijlocul buclei, sau interval manual G_UR). Benzi / tangente ca mai sus.
+                  </span>
+                ) : null}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
@@ -968,7 +1064,17 @@ export function TestWorkspace({
                         typeof chartPick === "object" &&
                         "k" in chartPick &&
                         chartPick.k === "reload_to" &&
-                        `bucla ${chartPick.loop + 1} reload to`}{" "}
+                        `bucla ${chartPick.loop + 1} reload to`}
+                      {chartPick != null &&
+                        typeof chartPick === "object" &&
+                        "k" in chartPick &&
+                        chartPick.k === "gur_from" &&
+                        `bucla ${chartPick.loop + 1} G_UR (from)`}
+                      {chartPick != null &&
+                        typeof chartPick === "object" &&
+                        "k" in chartPick &&
+                        chartPick.k === "gur_to" &&
+                        `bucla ${chartPick.loop + 1} G_UR (to)`}{" "}
                       (index în serie).{" "}
                       <Button type="button" variant="ghost" size="sm" className="ml-2 h-7 px-2" onClick={() => setChartPick(null)}>
                         Anulează
@@ -993,9 +1099,7 @@ export function TestWorkspace({
                               xKind === "radius_mm" && prXAxisRadiusTicks?.length ? prXAxisRadiusTicks : undefined
                             }
                             tickFormatter={(v) =>
-                              xKind === "radius_mm"
-                                ? String(Math.round(typeof v === "number" ? v : Number(v)))
-                                : String(typeof v === "number" ? v : Number(v))
+                              xKind === "radius_mm" ? formatMmAxisTick(v) : String(typeof v === "number" ? v : Number(v))
                             }
                             tick={{ fontSize: 11 }}
                             label={{ value: xLabel, position: "bottom", offset: 0, style: { fontSize: 11 } }}
@@ -1097,6 +1201,29 @@ export function TestWorkspace({
                                 />,
                               ];
                             })}
+                          {manualDraft.mode === "manual" &&
+                            manualPickMarkers.map((m) => {
+                              const row = chartSeries.pr[m.idx];
+                              if (!row) return null;
+                              return (
+                                <ReferenceDot
+                                  key={m.key}
+                                  x={row.x}
+                                  y={row.p_kpa}
+                                  r={5}
+                                  fill={m.fill}
+                                  stroke={m.stroke}
+                                  strokeWidth={1.5}
+                                  label={{
+                                    value: `${m.label} #${m.idx}`,
+                                    position: "top",
+                                    fill: m.fill,
+                                    fontSize: 9,
+                                    fontWeight: 600,
+                                  }}
+                                />
+                              );
+                            })}
                         </LineChart>
                       </ResponsiveContainer>
                     </PresiometryChartZoomShell>
@@ -1105,6 +1232,10 @@ export function TestWorkspace({
                         Marcaje: portocaliu = vârf buclă, verde = minim buclă (auto). Portocaliu deschis = praguri 30% /
                         70% din domeniul p. Benzi colorate = intervale regresie; linii colorate punctat = tangente{" "}
                         <span className="font-medium">G</span>.
+                      </p>
+                    ) : manualDraft.mode === "manual" && manualPickMarkers.length > 0 ? (
+                      <p className="text-muted-foreground text-[10px]">
+                        Punctele colorate cu etichetă rămân pe curbă pentru fiecare index setat (manual).
                       </p>
                     ) : null}
                   </div>
@@ -1125,6 +1256,12 @@ export function TestWorkspace({
                             type="number"
                             dataKey="x"
                             domain={chartSeries.pdrXDomain ?? ["auto", "auto"]}
+                            ticks={
+                              xKind === "radius_mm" && pdrXAxisDeltaTicks?.length ? pdrXAxisDeltaTicks : undefined
+                            }
+                            tickFormatter={(v) =>
+                              xKind === "radius_mm" ? formatMmAxisTick(v) : String(typeof v === "number" ? v : Number(v))
+                            }
                             tick={{ fontSize: 11 }}
                             label={{
                               value: xLabelDelta,
@@ -1188,6 +1325,29 @@ export function TestWorkspace({
                                 }}
                               />
                             ))}
+                          {manualDraft.mode === "manual" &&
+                            manualPickMarkers.map((m) => {
+                              const row = chartSeries.pdr[m.idx];
+                              if (!row) return null;
+                              return (
+                                <ReferenceDot
+                                  key={m.key}
+                                  x={row.x}
+                                  y={row.p_kpa}
+                                  r={5}
+                                  fill={m.fill}
+                                  stroke={m.stroke}
+                                  strokeWidth={1.5}
+                                  label={{
+                                    value: `${m.label} #${m.idx}`,
+                                    position: "top",
+                                    fill: m.fill,
+                                    fontSize: 9,
+                                    fontWeight: 600,
+                                  }}
+                                />
+                              );
+                            })}
                         </LineChart>
                       </ResponsiveContainer>
                     </PresiometryChartZoomShell>
@@ -1252,7 +1412,9 @@ export function TestWorkspace({
                       <div className="space-y-3">
                         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4 sm:items-end">
                           <div>
-                            <Label className="text-xs">Încărcare 1 (from)</Label>
+                            <Label className="text-xs">
+                              {okType === "presiometry_program_b" ? "G_L1 — from (indice)" : "Încărcare 1 (from)"}
+                            </Label>
                             <div className="flex gap-1">
                               <Input
                                 className="min-w-0 flex-1"
@@ -1260,7 +1422,7 @@ export function TestWorkspace({
                                 onChange={(e) => setManualDraft((d) => ({ ...d, load1_from: e.target.value }))}
                                 placeholder="ex. 5"
                               />
-                              {okType === "presiometry_program_a" ? (
+                              {okType === "presiometry_program_a" || okType === "presiometry_program_b" ? (
                                 <Button
                                   type="button"
                                   variant="outline"
@@ -1276,7 +1438,9 @@ export function TestWorkspace({
                             </div>
                           </div>
                           <div>
-                            <Label className="text-xs">Încărcare 1 (to)</Label>
+                            <Label className="text-xs">
+                              {okType === "presiometry_program_b" ? "G_L1 — to (indice)" : "Încărcare 1 (to)"}
+                            </Label>
                             <div className="flex gap-1">
                               <Input
                                 className="min-w-0 flex-1"
@@ -1284,7 +1448,7 @@ export function TestWorkspace({
                                 onChange={(e) => setManualDraft((d) => ({ ...d, load1_to: e.target.value }))}
                                 placeholder="ex. 25"
                               />
-                              {okType === "presiometry_program_a" ? (
+                              {okType === "presiometry_program_a" || okType === "presiometry_program_b" ? (
                                 <Button
                                   type="button"
                                   variant="outline"
@@ -1302,132 +1466,209 @@ export function TestWorkspace({
                         </div>
 
                         <div className="overflow-auto rounded-md border">
-                          <Table>
-                            <TableHeader className="bg-muted/40">
-                              <TableRow>
-                                <TableHead className="w-[70px]">Buclă</TableHead>
-                                <TableHead>Unload from</TableHead>
-                                <TableHead>Unload to</TableHead>
-                                <TableHead>Reload from</TableHead>
-                                <TableHead>Reload to</TableHead>
-                              </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                              {manualDraft.loops.map((row, i) => (
-                                <TableRow key={i}>
-                                  <TableCell className="text-xs text-muted-foreground">{i + 1}</TableCell>
-                                  <TableCell>
-                                    <div className="flex gap-1">
-                                      <Input
-                                        className="min-w-0 flex-1"
-                                        value={row.unload_from}
-                                        onChange={(e) =>
-                                          setManualDraft((d) => ({
-                                            ...d,
-                                            loops: d.loops.map((x, j) =>
-                                              j === i ? { ...x, unload_from: e.target.value } : x,
-                                            ),
-                                          }))
-                                        }
-                                        placeholder="ex. 30"
-                                      />
-                                      <Button
-                                        type="button"
-                                        variant="outline"
-                                        size="icon"
-                                        className="size-9 shrink-0"
-                                        title="Alege punct pe graficul p–R de mai sus"
-                                        disabled={busy}
-                                        onClick={() => setChartPick({ k: "unload_from", loop: i })}
-                                      >
-                                        <Crosshair className="size-3.5" />
-                                      </Button>
-                                    </div>
-                                  </TableCell>
-                                  <TableCell>
-                                    <div className="flex gap-1">
-                                      <Input
-                                        className="min-w-0 flex-1"
-                                        value={row.unload_to}
-                                        onChange={(e) =>
-                                          setManualDraft((d) => ({
-                                            ...d,
-                                            loops: d.loops.map((x, j) => (j === i ? { ...x, unload_to: e.target.value } : x)),
-                                          }))
-                                        }
-                                        placeholder="ex. 55"
-                                      />
-                                      <Button
-                                        type="button"
-                                        variant="outline"
-                                        size="icon"
-                                        className="size-9 shrink-0"
-                                        title="Alege punct pe graficul p–R de mai sus"
-                                        disabled={busy}
-                                        onClick={() => setChartPick({ k: "unload_to", loop: i })}
-                                      >
-                                        <Crosshair className="size-3.5" />
-                                      </Button>
-                                    </div>
-                                  </TableCell>
-                                  <TableCell>
-                                    <div className="flex gap-1">
-                                      <Input
-                                        className="min-w-0 flex-1"
-                                        value={row.reload_from}
-                                        onChange={(e) =>
-                                          setManualDraft((d) => ({
-                                            ...d,
-                                            loops: d.loops.map((x, j) =>
-                                              j === i ? { ...x, reload_from: e.target.value } : x,
-                                            ),
-                                          }))
-                                        }
-                                        placeholder="ex. 56"
-                                      />
-                                      <Button
-                                        type="button"
-                                        variant="outline"
-                                        size="icon"
-                                        className="size-9 shrink-0"
-                                        title="Alege punct pe graficul p–R de mai sus"
-                                        disabled={busy}
-                                        onClick={() => setChartPick({ k: "reload_from", loop: i })}
-                                      >
-                                        <Crosshair className="size-3.5" />
-                                      </Button>
-                                    </div>
-                                  </TableCell>
-                                  <TableCell>
-                                    <div className="flex gap-1">
-                                      <Input
-                                        className="min-w-0 flex-1"
-                                        value={row.reload_to}
-                                        onChange={(e) =>
-                                          setManualDraft((d) => ({
-                                            ...d,
-                                            loops: d.loops.map((x, j) => (j === i ? { ...x, reload_to: e.target.value } : x)),
-                                          }))
-                                        }
-                                        placeholder="ex. 80"
-                                      />
-                                      <Button
-                                        type="button"
-                                        variant="outline"
-                                        size="icon"
-                                        className="size-9 shrink-0"
-                                        title="Alege punct pe graficul p–R de mai sus"
-                                        disabled={busy}
-                                        onClick={() => setChartPick({ k: "reload_to", loop: i })}
-                                      >
-                                        <Crosshair className="size-3.5" />
-                                      </Button>
-                                    </div>
-                                  </TableCell>
+                          {okType === "presiometry_program_b" ? (
+                            <Table>
+                              <TableHeader className="bg-muted/40">
+                                <TableRow>
+                                  <TableHead className="w-[70px]">Buclă</TableHead>
+                                  <TableHead>G_UR (from)</TableHead>
+                                  <TableHead>G_UR (to)</TableHead>
                                 </TableRow>
-                              ))}
-                            </TableBody>
-                          </Table>
+                              </TableHeader>
+                              <TableBody>
+                                {manualDraft.loops.map((row, i) => (
+                                  <TableRow key={i}>
+                                    <TableCell className="text-xs text-muted-foreground">{i + 1}</TableCell>
+                                    <TableCell>
+                                      <div className="flex gap-1">
+                                        <Input
+                                          className="min-w-0 flex-1"
+                                          value={row.gur_from}
+                                          onChange={(e) =>
+                                            setManualDraft((d) => ({
+                                              ...d,
+                                              loops: d.loops.map((x, j) =>
+                                                j === i ? { ...x, gur_from: e.target.value } : x,
+                                              ),
+                                            }))
+                                          }
+                                          placeholder="ex. 30"
+                                        />
+                                        <Button
+                                          type="button"
+                                          variant="outline"
+                                          size="icon"
+                                          className="size-9 shrink-0"
+                                          title="Alege punct pe graficul p–R de mai sus"
+                                          disabled={busy}
+                                          onClick={() => setChartPick({ k: "gur_from", loop: i })}
+                                        >
+                                          <Crosshair className="size-3.5" />
+                                        </Button>
+                                      </div>
+                                    </TableCell>
+                                    <TableCell>
+                                      <div className="flex gap-1">
+                                        <Input
+                                          className="min-w-0 flex-1"
+                                          value={row.gur_to}
+                                          onChange={(e) =>
+                                            setManualDraft((d) => ({
+                                              ...d,
+                                              loops: d.loops.map((x, j) => (j === i ? { ...x, gur_to: e.target.value } : x)),
+                                            }))
+                                          }
+                                          placeholder="ex. 80"
+                                        />
+                                        <Button
+                                          type="button"
+                                          variant="outline"
+                                          size="icon"
+                                          className="size-9 shrink-0"
+                                          title="Alege punct pe graficul p–R de mai sus"
+                                          disabled={busy}
+                                          onClick={() => setChartPick({ k: "gur_to", loop: i })}
+                                        >
+                                          <Crosshair className="size-3.5" />
+                                        </Button>
+                                      </div>
+                                    </TableCell>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          ) : (
+                            <Table>
+                              <TableHeader className="bg-muted/40">
+                                <TableRow>
+                                  <TableHead className="w-[70px]">Buclă</TableHead>
+                                  <TableHead>Unload from</TableHead>
+                                  <TableHead>Unload to</TableHead>
+                                  <TableHead>Reload from</TableHead>
+                                  <TableHead>Reload to</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {manualDraft.loops.map((row, i) => (
+                                  <TableRow key={i}>
+                                    <TableCell className="text-xs text-muted-foreground">{i + 1}</TableCell>
+                                    <TableCell>
+                                      <div className="flex gap-1">
+                                        <Input
+                                          className="min-w-0 flex-1"
+                                          value={row.unload_from}
+                                          onChange={(e) =>
+                                            setManualDraft((d) => ({
+                                              ...d,
+                                              loops: d.loops.map((x, j) =>
+                                                j === i ? { ...x, unload_from: e.target.value } : x,
+                                              ),
+                                            }))
+                                          }
+                                          placeholder="ex. 30"
+                                        />
+                                        <Button
+                                          type="button"
+                                          variant="outline"
+                                          size="icon"
+                                          className="size-9 shrink-0"
+                                          title="Alege punct pe graficul p–R de mai sus"
+                                          disabled={busy}
+                                          onClick={() => setChartPick({ k: "unload_from", loop: i })}
+                                        >
+                                          <Crosshair className="size-3.5" />
+                                        </Button>
+                                      </div>
+                                    </TableCell>
+                                    <TableCell>
+                                      <div className="flex gap-1">
+                                        <Input
+                                          className="min-w-0 flex-1"
+                                          value={row.unload_to}
+                                          onChange={(e) =>
+                                            setManualDraft((d) => ({
+                                              ...d,
+                                              loops: d.loops.map((x, j) =>
+                                                j === i ? { ...x, unload_to: e.target.value } : x,
+                                              ),
+                                            }))
+                                          }
+                                          placeholder="ex. 55"
+                                        />
+                                        <Button
+                                          type="button"
+                                          variant="outline"
+                                          size="icon"
+                                          className="size-9 shrink-0"
+                                          title="Alege punct pe graficul p–R de mai sus"
+                                          disabled={busy}
+                                          onClick={() => setChartPick({ k: "unload_to", loop: i })}
+                                        >
+                                          <Crosshair className="size-3.5" />
+                                        </Button>
+                                      </div>
+                                    </TableCell>
+                                    <TableCell>
+                                      <div className="flex gap-1">
+                                        <Input
+                                          className="min-w-0 flex-1"
+                                          value={row.reload_from}
+                                          onChange={(e) =>
+                                            setManualDraft((d) => ({
+                                              ...d,
+                                              loops: d.loops.map((x, j) =>
+                                                j === i ? { ...x, reload_from: e.target.value } : x,
+                                              ),
+                                            }))
+                                          }
+                                          placeholder="ex. 56"
+                                        />
+                                        <Button
+                                          type="button"
+                                          variant="outline"
+                                          size="icon"
+                                          className="size-9 shrink-0"
+                                          title="Alege punct pe graficul p–R de mai sus"
+                                          disabled={busy}
+                                          onClick={() => setChartPick({ k: "reload_from", loop: i })}
+                                        >
+                                          <Crosshair className="size-3.5" />
+                                        </Button>
+                                      </div>
+                                    </TableCell>
+                                    <TableCell>
+                                      <div className="flex gap-1">
+                                        <Input
+                                          className="min-w-0 flex-1"
+                                          value={row.reload_to}
+                                          onChange={(e) =>
+                                            setManualDraft((d) => ({
+                                              ...d,
+                                              loops: d.loops.map((x, j) =>
+                                                j === i ? { ...x, reload_to: e.target.value } : x,
+                                              ),
+                                            }))
+                                          }
+                                          placeholder="ex. 80"
+                                        />
+                                        <Button
+                                          type="button"
+                                          variant="outline"
+                                          size="icon"
+                                          className="size-9 shrink-0"
+                                          title="Alege punct pe graficul p–R de mai sus"
+                                          disabled={busy}
+                                          onClick={() => setChartPick({ k: "reload_to", loop: i })}
+                                        >
+                                          <Crosshair className="size-3.5" />
+                                        </Button>
+                                      </div>
+                                    </TableCell>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          )}
                         </div>
                       </div>
                     ) : null}
@@ -1452,7 +1693,9 @@ export function TestWorkspace({
                 <span>
                   {okType === "presiometry_program_c"
                     ? "Program C (creep): în această versiune avem import + structură. Calculele de creep vor fi adăugate ulterior."
-                    : "Program A/B: moduluri pe ferestre 30–70% (detecție bucle auto)."}
+                    : okType === "presiometry_program_b"
+                      ? "Program B: G_L1 (prima încărcare) + G_UR pe buclă (bandă la mijlocul buclei sau manual)."
+                      : "Program A: G_L1 + G_U / G_R pe ferestre 30–70% (sau manual)."}
                 </span>
                 {okType !== "presiometry_program_c" ? (
                   <span className="text-muted-foreground block text-xs">

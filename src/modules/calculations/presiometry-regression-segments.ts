@@ -128,6 +128,73 @@ export function buildLoopUnloadReloadSegments(
   return { unload, reload };
 }
 
+/**
+ * Program B (ISO): un singur modul **G_URi** pe buclă — regresie liniară pe punctele din buclă
+ * într-o bandă de presiune în jurul mijlocului (p_vârf + p_vale)/2 (bandă lărgită dacă sunt prea puține puncte).
+ * Mod manual: preferă `loops[i].gur`; altfel reunește intervalele unload/reload dacă există (compat înapoi).
+ */
+export function buildProgramBMidLoopGurSegment(
+  pts: PVPoint[],
+  manual: PresiometryManualSettings | null,
+  loop: LoopWindow,
+  loopIndexZeroBased: number,
+): PresiometryRegressionSegment | null {
+  const i = loopIndexZeroBased + 1;
+  const sym = `G_UR${i}`;
+  const manLoop = manual?.mode === "manual" ? manual.loops?.[loopIndexZeroBased] : undefined;
+  const loI = loop.peakIndex;
+  const hiI = loop.nextPeakIndex;
+
+  if (manual?.mode === "manual" && manLoop?.gur) {
+    const arr = manualRangeArrays(pts, manLoop.gur.from, manLoop.gur.to);
+    if (!arr) return null;
+    return segmentFromArrays(sym, "manual", arr.xsV, arr.ysP, arr.indexFrom, arr.indexTo);
+  }
+
+  if (manual?.mode === "manual" && (manLoop?.unload || manLoop?.reload)) {
+    let mergedFrom = Infinity;
+    let mergedTo = -Infinity;
+    if (manLoop.unload) {
+      mergedFrom = Math.min(mergedFrom, manLoop.unload.from, manLoop.unload.to);
+      mergedTo = Math.max(mergedTo, manLoop.unload.from, manLoop.unload.to);
+    }
+    if (manLoop.reload) {
+      mergedFrom = Math.min(mergedFrom, manLoop.reload.from, manLoop.reload.to);
+      mergedTo = Math.max(mergedTo, manLoop.reload.from, manLoop.reload.to);
+    }
+    if (mergedFrom !== Infinity && mergedTo > mergedFrom) {
+      const from = Math.max(loI, mergedFrom);
+      const to = Math.min(hiI, mergedTo);
+      if (to > from) {
+        const arr = manualRangeArrays(pts, from, to);
+        if (arr) return segmentFromArrays(sym, "manual", arr.xsV, arr.ysP, arr.indexFrom, arr.indexTo);
+      }
+    }
+  }
+
+  const peak = pts[loop.peakIndex]!;
+  const valley = pts[loop.valleyIndex]!;
+  const pk = peak.p_kpa;
+  const vk = valley.p_kpa;
+  const pMax = Math.max(pk, vk);
+  const pMin = Math.min(pk, vk);
+  const dp = pMax - pMin;
+  if (!(dp > 0)) return null;
+  const pMid = (pMax + pMin) / 2;
+  let halfBand = 0.12 * dp;
+  const maxHalf = 0.48 * dp;
+  for (let attempt = 0; attempt < 16 && halfBand <= maxHalf; attempt++) {
+    const pLo = pMid - halfBand;
+    const pHi = pMid + halfBand;
+    const picked = pickPointsInPressureWindowWithIndices(pts, loI, hiI, pLo, pHi);
+    if (picked.xsV.length >= 4) {
+      return segmentFromArrays(sym, "auto3070", picked.xsV, picked.ysP, picked.indexFrom, picked.indexTo);
+    }
+    halfBand += 0.03 * dp;
+  }
+  return null;
+}
+
 export function buildProgramARegressionSegments(
   pts: PVPoint[],
   manual: PresiometryManualSettings | null,
@@ -145,8 +212,15 @@ export function buildProgramBRegressionSegments(
   pts: PVPoint[],
   manual: PresiometryManualSettings | null,
   loops: LoopWindow[],
-): Array<{ unload: PresiometryRegressionSegment | null; reload: PresiometryRegressionSegment | null }> {
-  return loops.slice(0, 10).map((lp, idx) => buildLoopUnloadReloadSegments(pts, manual, lp, idx));
+): {
+  load1: PresiometryRegressionSegment | null;
+  loops: Array<{ gUr: PresiometryRegressionSegment | null }>;
+} {
+  const load1 = buildFirstLoadingSegmentProgramA(pts, manual, loops);
+  const loopSegs = loops.slice(0, 10).map((lp, idx) => ({
+    gUr: buildProgramBMidLoopGurSegment(pts, manual, lp, idx),
+  }));
+  return { load1, loops: loopSegs };
 }
 
 /** Capete pentru dreaptă p = slope·x + intercept în spațiul x al seriei (R sau V). */

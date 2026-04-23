@@ -6,6 +6,7 @@ import { parsePointLoadReportMetadata } from "./point-load-report-metadata.js";
 import { parseUnconfinedSoilCurvePayload, stressStrainSeriesKpa } from "./unconfined-soil-curve.js";
 import { parseUnconfinedSoilReportMetadata } from "./unconfined-soil-report-metadata.js";
 import { parseUcsReportMetadata } from "./ucs-report-metadata.js";
+import { buildPresiometryPdfOverlays } from "./presiometry-pdf-overlays.js";
 /** Aliniat la `server.ts` — enum Postgres / copieri pot varia ca string. */
 function normalizeTestTypeForPayload(raw) {
     if (raw == null)
@@ -22,6 +23,92 @@ function fmtNum(v, decimals = 3) {
     if (!Number.isFinite(n))
         return "—";
     return n.toFixed(decimals);
+}
+function escXml(s) {
+    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+function svgLineChart(opts) {
+    const width = opts.width ?? 820;
+    const height = opts.height ?? 260;
+    const pts = opts.points.filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y));
+    if (pts.length < 2)
+        return null;
+    let minX = Math.min(...pts.map((p) => p.x));
+    let maxX = Math.max(...pts.map((p) => p.x));
+    let minY = Math.min(...pts.map((p) => p.y));
+    let maxY = Math.max(...pts.map((p) => p.y));
+    for (const b of opts.bands ?? []) {
+        if (!Number.isFinite(b.x1) || !Number.isFinite(b.x2))
+            continue;
+        minX = Math.min(minX, b.x1, b.x2);
+        maxX = Math.max(maxX, b.x1, b.x2);
+    }
+    for (const s of opts.segmentLines ?? []) {
+        if (![s.x1, s.x2, s.y1, s.y2].every((v) => Number.isFinite(v)))
+            continue;
+        minX = Math.min(minX, s.x1, s.x2);
+        maxX = Math.max(maxX, s.x1, s.x2);
+        minY = Math.min(minY, s.y1, s.y2);
+        maxY = Math.max(maxY, s.y1, s.y2);
+    }
+    let dx = maxX - minX;
+    let dy = maxY - minY;
+    if (!(dx > 0) || !(dy > 0))
+        return null;
+    const pr = opts.padAxesRatio ?? 0;
+    if (pr > 0) {
+        minX -= dx * pr;
+        maxX += dx * pr;
+        minY -= dy * pr;
+        maxY += dy * pr;
+        dx = maxX - minX;
+        dy = maxY - minY;
+    }
+    const padL = 52;
+    const padR = 16;
+    const padT = 26;
+    const padB = 34;
+    const innerW = width - padL - padR;
+    const innerH = height - padT - padB;
+    const sx = (x) => padL + ((x - minX) / dx) * innerW;
+    const sy = (y) => padT + (1 - (y - minY) / dy) * innerH;
+    const path = pts
+        .map((p, i) => `${i === 0 ? "M" : "L"} ${sx(p.x).toFixed(2)} ${sy(p.y).toFixed(2)}`)
+        .join(" ");
+    const bandsSvg = (opts.bands ?? [])
+        .map((b) => {
+        const x1 = Math.min(b.x1, b.x2);
+        const x2 = Math.max(b.x1, b.x2);
+        const rx = sx(x1);
+        const rw = Math.max(0.5, sx(x2) - sx(x1));
+        const op = b.opacity ?? 0.28;
+        return `<rect x="${rx.toFixed(2)}" y="${padT}" width="${rw.toFixed(2)}" height="${innerH}" fill="${escXml(b.fill)}" opacity="${op}"/>`;
+    })
+        .join("\n");
+    const segSvg = (opts.segmentLines ?? [])
+        .map((s) => {
+        const dash = s.dash ? ` stroke-dasharray="${escXml(s.dash)}"` : "";
+        return `<line x1="${sx(s.x1).toFixed(2)}" y1="${sy(s.y1).toFixed(2)}" x2="${sx(s.x2).toFixed(2)}" y2="${sy(s.y2).toFixed(2)}" stroke="${escXml(s.stroke)}" stroke-width="1.6"${dash} />`;
+    })
+        .join("\n");
+    const axis = `
+    <line x1="${padL}" y1="${padT}" x2="${padL}" y2="${padT + innerH}" stroke="#888" stroke-width="1" />
+    <line x1="${padL}" y1="${padT + innerH}" x2="${padL + innerW}" y2="${padT + innerH}" stroke="#888" stroke-width="1" />
+  `;
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+  <style>
+    .t { font: 12px Arial, sans-serif; fill: #222; }
+    .m { font: 10px Arial, sans-serif; fill: #444; }
+  </style>
+  <text class="t" x="${padL}" y="16">${escXml(opts.title)}</text>
+  ${axis}
+  ${bandsSvg}
+  <path d="${path}" fill="none" stroke="#2a6fdb" stroke-width="1.5" />
+  ${segSvg}
+  <text class="m" x="${padL + innerW / 2}" y="${height - 10}" text-anchor="middle">${escXml(opts.xLabel)}</text>
+  <text class="m" x="14" y="${padT + innerH / 2}" transform="rotate(-90 14 ${padT + innerH / 2})" text-anchor="middle">${escXml(opts.yLabel)}</text>
+</svg>`;
 }
 function normalizePdfLabel(raw) {
     if (raw === null || raw === undefined)
@@ -2283,7 +2370,7 @@ export async function buildPresiometryPayload(supabase, testId, templateCode, te
         .select(`
       id, test_type, status, operator_name, device_name, prepared_by, verified_by, test_date, formula_version, notes,
       created_at, updated_at, created_by, updated_by,
-      presiometry_report_metadata_json, report_options_json,
+      presiometry_report_metadata_json, report_options_json, presiometry_curve_json,
       sample:samples (
         id, code, depth_from, depth_to, lithology, notes,
         borehole:boreholes (
@@ -2296,8 +2383,9 @@ export async function buildPresiometryPayload(supabase, testId, templateCode, te
         .single();
     if (tErr)
         throw tErr;
-    if (!test || normalizeTestTypeForPayload(test.test_type) !== "presiometry") {
-        throw new Error("Doar testele presiometrie (presiometry) sunt suportate.");
+    const tt = normalizeTestTypeForPayload(test.test_type);
+    if (!test || (tt !== "presiometry_program_a" && tt !== "presiometry_program_b" && tt !== "presiometry_program_c")) {
+        throw new Error("Doar testele presiometrie Program A/B/C sunt suportate.");
     }
     const rawSample = test.sample;
     if (!rawSample || Array.isArray(rawSample))
@@ -2344,9 +2432,72 @@ export async function buildPresiometryPayload(supabase, testId, templateCode, te
         typeof test.presiometry_report_metadata_json === "object"
         ? test.presiometry_report_metadata_json
         : {};
-    const reportMainTitle = "Încercare presiometrică";
+    const holeNo = typeof rawMeta.hole_no === "string" ? rawMeta.hole_no.trim() : "";
+    const startTime = typeof rawMeta.start_time === "string" ? rawMeta.start_time.trim() : "";
+    const curveRaw = test.presiometry_curve_json;
+    const curveObj = curveRaw && typeof curveRaw === "object" ? curveRaw : null;
+    const xKind = curveObj?.x_kind === "radius_mm" ? "radius_mm" : "volume_cm3";
+    const ptsArr = Array.isArray(curveObj?.points) ? curveObj.points : [];
+    const curvePts = ptsArr
+        .map((p) => (p && typeof p === "object" ? p : null))
+        .filter((p) => Boolean(p))
+        .map((p) => {
+        const p_kpa = Number(p.p_kpa);
+        const r_mm = p.r_mm != null ? Number(p.r_mm) : Number(p.v_cm3);
+        const v_cm3 = Number(p.v_cm3);
+        const x = xKind === "radius_mm" ? r_mm : v_cm3;
+        return { p_kpa, r_mm, v_cm3, x };
+    })
+        .filter((p) => Number.isFinite(p.p_kpa) && Number.isFinite(p.x));
+    const measRows = measurements ?? [];
+    /** Aliniat la web `src/lib/presiometry-defaults.ts`: sondă Ø76 mm → R așezare 38 mm. */
+    const PMT_SEATING_R_MM_DEFAULT = 38;
+    const seatingRMeas = measurementNumber(measRows, "pmt_seating_r_mm");
+    const seatingR0 = xKind === "radius_mm"
+        ? Number.isFinite(seatingRMeas) && seatingRMeas > 0
+            ? seatingRMeas
+            : PMT_SEATING_R_MM_DEFAULT
+        : curvePts.length
+            ? curvePts[0].x
+            : 0;
+    const overlaysPdf = tt !== "presiometry_program_c" && curvePts.length >= 2 && curveObj
+        ? buildPresiometryPdfOverlays({
+            testType: tt,
+            xKind,
+            curveObj,
+            settingsJson: test.presiometry_settings_json,
+            seatingR0: xKind === "radius_mm" ? seatingR0 : curvePts[0].x,
+        })
+        : null;
+    const svgPR = curvePts.length >= 2
+        ? svgLineChart({
+            title: xKind === "radius_mm" ? "Curba p–R" : "Curba p–V",
+            xLabel: xKind === "radius_mm" ? "R (mm)" : "V (cm³)",
+            yLabel: "p (kPa)",
+            points: curvePts.map((p) => ({ x: p.x, y: p.p_kpa })),
+            padAxesRatio: tt !== "presiometry_program_c" ? 0.06 : undefined,
+            bands: overlaysPdf?.bandsPr,
+            segmentLines: overlaysPdf?.linesPr,
+        })
+        : null;
+    const svgPdR = curvePts.length >= 2
+        ? svgLineChart({
+            title: xKind === "radius_mm" ? "Curba p–δ" : "Curba p–ΔV",
+            xLabel: xKind === "radius_mm" ? "δ (mm)" : "ΔV (cm³)",
+            yLabel: "p (kPa)",
+            points: curvePts.map((p) => ({
+                x: xKind === "radius_mm" ? p.r_mm - seatingR0 : p.v_cm3 - (curvePts[0]?.v_cm3 ?? 0),
+                y: p.p_kpa,
+            })),
+            padAxesRatio: tt !== "presiometry_program_c" ? 0.06 : undefined,
+            bands: overlaysPdf?.bandsPdr,
+            segmentLines: overlaysPdf?.linesPdr,
+        })
+        : null;
+    const programLabel = tt === "presiometry_program_a" ? "Program A" : tt === "presiometry_program_b" ? "Program B" : "Program C";
+    const reportMainTitle = `Încercare presiometrică — ${programLabel}`;
     const reportNormRef = "SR EN ISO 22476-5";
-    const reportPageTitle = "Presiometrie";
+    const reportPageTitle = `Presiometrie (${programLabel})`;
     const conformanceStatement = "Încercarea a fost efectuată conform SR EN ISO 22476-5.";
     const testConditions = {
         testDateDisplay: formatTestDateRo(test.test_date ?? null),
@@ -2396,7 +2547,7 @@ export async function buildPresiometryPayload(supabase, testId, templateCode, te
         },
         test: {
             id: String(test.id ?? ""),
-            test_type: "presiometry",
+            test_type: tt,
             status: String(test.status ?? ""),
             conclusion: typeof rawMeta.conclusion === "string" ? rawMeta.conclusion : null,
             operator_name: test.operator_name ?? null,
@@ -2409,12 +2560,36 @@ export async function buildPresiometryPayload(supabase, testId, templateCode, te
             created_by: test.created_by ?? null,
             updated_by: test.updated_by ?? null,
         },
-        measurements: (measurements ?? []).map((m) => ({
-            label: String(m.label ?? m.key ?? ""),
-            key: String(m.key ?? ""),
-            value: fmtNum(m.value, 3),
-            unit: String(m.unit ?? ""),
-        })),
+        measurements: (() => {
+            const base = (measurements ?? []).map((m) => ({
+                label: String(m.label ?? m.key ?? ""),
+                key: String(m.key ?? ""),
+                value: fmtNum(m.value, 3),
+                unit: String(m.unit ?? ""),
+            }));
+            const packer = (measurements ?? []).find((m) => m.key === "pmt_packer_diameter_mm");
+            const packerVal = packer?.value;
+            const packerNum = packerVal == null ? NaN : Number(packerVal);
+            const hasPacker = Number.isFinite(packerNum) && packerNum > 0;
+            // The curve is stored as JSON on `tests`; we don't read it here yet.
+            // For Elast Logger workflows we explicitly note the axis in the report title + measurements.
+            const axisNote = { label: "Seria importată", key: "pmt_series_axis", value: "p–R (R în mm)", unit: "" };
+            const out = [...base];
+            if (holeNo)
+                out.unshift({ label: "Număr foraj (din CSV)", key: "pmt_hole_no", value: holeNo, unit: "" });
+            if (startTime)
+                out.unshift({ label: "Ora start (din CSV)", key: "pmt_start_time", value: startTime, unit: "" });
+            if (hasPacker) {
+                out.unshift({
+                    label: "Diametru packer (NX)",
+                    key: "pmt_packer_diameter_mm",
+                    value: fmtNum(packerNum, 0),
+                    unit: "mm",
+                });
+            }
+            out.unshift(axisNote);
+            return out;
+        })(),
         results: (results ?? []).map((r) => ({
             label: String(r.label ?? r.key ?? ""),
             key: String(r.key ?? ""),
@@ -2422,7 +2597,10 @@ export async function buildPresiometryPayload(supabase, testId, templateCode, te
             unit: String(r.unit ?? ""),
         })),
         show,
-        charts: {},
+        charts: {
+            ...(svgPR ? { presioPRSvg: svgPR } : null),
+            ...(svgPdR ? { presioPdRSvg: svgPdR } : null),
+        },
         photos: { beforeSrc, afterSrc },
         lab,
         footer: { formCode: "ISO-22476-5" },

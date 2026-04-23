@@ -15,7 +15,11 @@ export type PresiometryManualSettings = {
   mode: "auto" | "manual";
   x_kind?: PresiometryXKind;
   load1?: { from: number; to: number } | null;
-  loops?: Array<{ unload?: { from: number; to: number } | null; reload?: { from: number; to: number } | null }>;
+  loops?: Array<{
+    unload?: { from: number; to: number } | null;
+    reload?: { from: number; to: number } | null;
+    gur?: { from: number; to: number } | null;
+  }>;
 };
 
 export type PresiometryRegressionSegment = {
@@ -258,6 +262,69 @@ function buildLoopUnloadReloadSegments(
   return { unload, reload };
 }
 
+/** Păstrați în sync cu `src/modules/calculations/presiometry-regression-segments.ts` (Program B). */
+function buildProgramBMidLoopGurSegmentPdf(
+  pts: PVPoint[],
+  manual: PresiometryManualSettings | null,
+  loop: LoopWindow,
+  loopIndexZeroBased: number,
+): PresiometryRegressionSegment | null {
+  const i = loopIndexZeroBased + 1;
+  const sym = `G_UR${i}`;
+  const manLoop = manual?.mode === "manual" ? manual.loops?.[loopIndexZeroBased] : undefined;
+  const loI = loop.peakIndex;
+  const hiI = loop.nextPeakIndex;
+
+  if (manual?.mode === "manual" && manLoop?.gur) {
+    const arr = manualRangeArrays(pts, manLoop.gur.from, manLoop.gur.to);
+    if (!arr) return null;
+    return segmentFromArrays(sym, "manual", arr.xsV, arr.ysP, arr.indexFrom, arr.indexTo);
+  }
+
+  if (manual?.mode === "manual" && (manLoop?.unload || manLoop?.reload)) {
+    let mergedFrom = Infinity;
+    let mergedTo = -Infinity;
+    if (manLoop.unload) {
+      mergedFrom = Math.min(mergedFrom, manLoop.unload.from, manLoop.unload.to);
+      mergedTo = Math.max(mergedTo, manLoop.unload.from, manLoop.unload.to);
+    }
+    if (manLoop.reload) {
+      mergedFrom = Math.min(mergedFrom, manLoop.reload.from, manLoop.reload.to);
+      mergedTo = Math.max(mergedTo, manLoop.reload.from, manLoop.reload.to);
+    }
+    if (mergedFrom !== Infinity && mergedTo > mergedFrom) {
+      const from = Math.max(loI, mergedFrom);
+      const to = Math.min(hiI, mergedTo);
+      if (to > from) {
+        const arr = manualRangeArrays(pts, from, to);
+        if (arr) return segmentFromArrays(sym, "manual", arr.xsV, arr.ysP, arr.indexFrom, arr.indexTo);
+      }
+    }
+  }
+
+  const peak = pts[loop.peakIndex]!;
+  const valley = pts[loop.valleyIndex]!;
+  const pk = peak.p_kpa;
+  const vk = valley.p_kpa;
+  const pMax = Math.max(pk, vk);
+  const pMin = Math.min(pk, vk);
+  const dp = pMax - pMin;
+  if (!(dp > 0)) return null;
+  const pMid = (pMax + pMin) / 2;
+  let halfBand = 0.12 * dp;
+  const maxHalf = 0.48 * dp;
+  for (let attempt = 0; attempt < 16 && halfBand <= maxHalf; attempt++) {
+    const pLo = pMid - halfBand;
+    const pHi = pMid + halfBand;
+    const picked = pickPointsInPressureWindowWithIndices(pts, loI, hiI, pLo, pHi);
+    if (picked.xsV.length >= 4) {
+      return segmentFromArrays(sym, "auto3070", picked.xsV, picked.ysP, picked.indexFrom, picked.indexTo);
+    }
+    halfBand += 0.03 * dp;
+  }
+  return null;
+}
+
 export function buildProgramARegressionSegmentsPdf(
   pts: PVPoint[],
   manual: PresiometryManualSettings | null,
@@ -275,8 +342,15 @@ export function buildProgramBRegressionSegmentsPdf(
   pts: PVPoint[],
   manual: PresiometryManualSettings | null,
   loops: LoopWindow[],
-): Array<{ unload: PresiometryRegressionSegment | null; reload: PresiometryRegressionSegment | null }> {
-  return loops.slice(0, 10).map((lp, idx) => buildLoopUnloadReloadSegments(pts, manual, lp, idx));
+): {
+  load1: PresiometryRegressionSegment | null;
+  loops: Array<{ gUr: PresiometryRegressionSegment | null }>;
+} {
+  const load1 = buildFirstLoadingSegmentProgramA(pts, manual, loops);
+  const loopSegs = loops.slice(0, 10).map((lp, idx) => ({
+    gUr: buildProgramBMidLoopGurSegmentPdf(pts, manual, lp, idx),
+  }));
+  return { load1, loops: loopSegs };
 }
 
 export function parsePresiometryManualSettingsPdf(raw: unknown): PresiometryManualSettings | null {
@@ -301,7 +375,7 @@ export function parsePresiometryManualSettingsPdf(raw: unknown): PresiometryManu
         .map((lr) => {
           if (!lr || typeof lr !== "object") return null;
           const r = lr as Record<string, unknown>;
-          return { unload: parseRange(r.unload), reload: parseRange(r.reload) };
+          return { unload: parseRange(r.unload), reload: parseRange(r.reload), gur: parseRange(r.gur) };
         })
         .filter(Boolean) as PresiometryManualSettings["loops"]
     : undefined;
@@ -360,11 +434,17 @@ export function buildPresiometryPdfOverlays(opts: {
   const loops = detectLoopsByPressure(pv);
   const r0 = opts.xKind === "radius_mm" ? opts.seatingR0 : pv[0]!.x;
 
-  let segs: { load1: PresiometryRegressionSegment | null; loops: Array<{ unload: PresiometryRegressionSegment | null; reload: PresiometryRegressionSegment | null }> };
+  let segs: {
+    load1: PresiometryRegressionSegment | null;
+    loops: Array<
+      | { unload: PresiometryRegressionSegment | null; reload: PresiometryRegressionSegment | null }
+      | { gUr: PresiometryRegressionSegment | null }
+    >;
+  };
   if (opts.testType === "presiometry_program_a") {
     segs = buildProgramARegressionSegmentsPdf(pv, manual, loops);
   } else if (opts.testType === "presiometry_program_b") {
-    segs = { load1: null, loops: buildProgramBRegressionSegmentsPdf(pv, manual, loops) };
+    segs = buildProgramBRegressionSegmentsPdf(pv, manual, loops);
   } else return empty;
 
   const bandsPr: SvgOverlayBand[] = [];
@@ -404,11 +484,15 @@ export function buildPresiometryPdfOverlays(opts: {
     pushLine(segs.load1);
   }
   segs.loops.forEach((pair) => {
-    if (pair.unload) {
+    if ("gUr" in pair && pair.gUr) {
+      pushBand(pair.gUr, "UR");
+      pushLine(pair.gUr);
+    }
+    if ("unload" in pair && pair.unload) {
       pushBand(pair.unload, "U");
       pushLine(pair.unload);
     }
-    if (pair.reload) {
+    if ("reload" in pair && pair.reload) {
       pushBand(pair.reload, "R");
       pushLine(pair.reload);
     }

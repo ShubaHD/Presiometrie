@@ -9,6 +9,8 @@ export type PresiometryManualSettings = {
   loops?: Array<{
     unload?: PresiometryManualRange | null;
     reload?: PresiometryManualRange | null;
+    /** Program B: interval unic pentru G_UR (mijloc buclă), opțional în mod manual. */
+    gur?: PresiometryManualRange | null;
   }>;
 };
 
@@ -41,7 +43,11 @@ export function parsePresiometryManualSettings(raw: unknown): PresiometryManualS
         .map((lr) => {
           if (!lr || typeof lr !== "object") return null;
           const r = lr as Record<string, unknown>;
-          return { unload: parseRange(r.unload), reload: parseRange(r.reload) };
+          return {
+            unload: parseRange(r.unload),
+            reload: parseRange(r.reload),
+            gur: parseRange(r.gur),
+          };
         })
         .filter(Boolean) as PresiometryManualSettings["loops"]
     : undefined;
