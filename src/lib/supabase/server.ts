@@ -1,18 +1,24 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { cookies } from "next/headers";
+import { sanitizeSupabaseKey, sanitizeSupabaseUrl } from "@/lib/supabase/env-sanitize";
 
 export async function createServerSupabaseClient() {
   const url =
-    process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() ||
-    process.env.SUPABASE_URL?.trim() ||
-    process.env.SUPABASE_PROJECT_URL?.trim();
+    sanitizeSupabaseUrl(process.env.NEXT_PUBLIC_SUPABASE_URL) ||
+    sanitizeSupabaseUrl(process.env.SUPABASE_URL) ||
+    sanitizeSupabaseUrl(process.env.SUPABASE_PROJECT_URL);
   const anon =
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim() ||
-    process.env.SUPABASE_ANON_KEY?.trim() ||
-    process.env.SUPABASE_PUBLIC_ANON_KEY?.trim();
+    sanitizeSupabaseKey(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) ||
+    sanitizeSupabaseKey(process.env.SUPABASE_ANON_KEY) ||
+    sanitizeSupabaseKey(process.env.SUPABASE_PUBLIC_ANON_KEY);
   if (!url || !anon) {
     throw new Error(
       "Lipsește URL/ANON pentru Supabase. Setează `NEXT_PUBLIC_SUPABASE_URL` și `NEXT_PUBLIC_SUPABASE_ANON_KEY` (sau echivalentele `SUPABASE_URL` + `SUPABASE_ANON_KEY`).",
+    );
+  }
+  if (anon.startsWith("sb_secret_")) {
+    throw new Error(
+      "NEXT_PUBLIC_SUPABASE_ANON_KEY folosește cheia Secret (service_role). În Supabase → Settings → API Keys puneți Publishable la ANON și service_role la SUPABASE_SERVICE_ROLE_KEY (doar pe server).",
     );
   }
 

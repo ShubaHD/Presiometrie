@@ -1,10 +1,11 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
+import { sanitizeSupabaseKey, sanitizeSupabaseUrl } from "@/lib/supabase/env-sanitize";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
 export async function GET(request: Request) {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
-  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
+  const url = sanitizeSupabaseUrl(process.env.NEXT_PUBLIC_SUPABASE_URL);
+  const anon = sanitizeSupabaseKey(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
   if (!url || !anon) {
     return NextResponse.redirect(new URL("/auth/error?reason=config", request.url));
   }
