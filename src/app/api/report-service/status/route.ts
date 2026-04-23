@@ -1,6 +1,8 @@
 import { requireAuth } from "@/lib/auth/session";
 import {
   isRunningOnVercel,
+  normalizeReportServiceBaseUrl,
+  normalizeReportServiceSecret,
   vercelInvalidReportUrlMessage,
   vercelReportDurationHint,
 } from "@/lib/report-service-vercel";
@@ -14,8 +16,8 @@ export async function GET() {
   const auth = await requireAuth();
   if (!auth.ok) return auth.res;
 
-  const baseUrl = process.env.REPORT_SERVICE_URL?.trim();
-  const secretSet = Boolean(process.env.REPORT_SERVICE_SECRET?.trim());
+  const baseUrl = normalizeReportServiceBaseUrl(process.env.REPORT_SERVICE_URL);
+  const secretSet = Boolean(normalizeReportServiceSecret(process.env.REPORT_SERVICE_SECRET));
 
   if (!baseUrl || !secretSet) {
     return NextResponse.json({

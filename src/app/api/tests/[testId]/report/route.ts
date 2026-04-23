@@ -1,4 +1,6 @@
 import {
+  normalizeReportServiceBaseUrl,
+  normalizeReportServiceSecret,
   vercelInvalidReportUrlMessage,
   vercelReportDurationHint,
 } from "@/lib/report-service-vercel";
@@ -67,8 +69,8 @@ export async function POST(req: Request, { params }: Params) {
     if (!auth.ok) return auth.res;
     const { supabase } = auth;
     const { testId } = await params;
-    const baseUrl = process.env.REPORT_SERVICE_URL;
-    const secret = process.env.REPORT_SERVICE_SECRET;
+    const baseUrl = normalizeReportServiceBaseUrl(process.env.REPORT_SERVICE_URL);
+    const secret = normalizeReportServiceSecret(process.env.REPORT_SERVICE_SECRET);
     if (!baseUrl || !secret) {
       return NextResponse.json(
         { error: "Configurați REPORT_SERVICE_URL și REPORT_SERVICE_SECRET." },
