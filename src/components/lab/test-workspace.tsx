@@ -10,6 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { jsonLabHeaders, labUserFetchHeaders } from "@/lib/lab-client-user";
+import { reportsStorageBucket } from "@/lib/reports-bucket";
 import { MEASUREMENT_PRESETS } from "@/lib/measurement-presets";
 import { PMT_PROBE_DIAMETER_MM, PMT_SEATING_R_MM_DEFAULT } from "@/lib/presiometry-defaults";
 import { parsePresiometryCurvePayload } from "@/lib/presiometry-curve";
@@ -957,7 +958,7 @@ export function TestWorkspace({
     setErr(null);
     try {
       const res = await fetch(
-        `/api/storage/signed-url?bucket=${encodeURIComponent("reports")}&path=${encodeURIComponent(pdfPath)}`,
+        `/api/storage/signed-url?bucket=${encodeURIComponent(reportsStorageBucket())}&path=${encodeURIComponent(pdfPath)}`,
       );
       const j = (await res.json()) as { signedUrl?: string; error?: string };
       if (!res.ok) throw new Error(j.error ?? "Nu s-a putut deschide PDF-ul.");

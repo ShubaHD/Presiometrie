@@ -1,10 +1,10 @@
 import { requireAuth } from "@/lib/auth/session";
 import { getLabActorFromRequest } from "@/lib/lab-actor";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { reportsStorageBucket } from "@/lib/reports-bucket";
 import { toErrorMessage } from "@/lib/to-error-message";
 import { isLockedByOther } from "@/lib/test-lock";
 import { NextResponse } from "next/server";
-
-const REPORTS_BUCKET = "reports";
 
 type Params = { params: Promise<{ testId: string; reportId: string }> };
 
@@ -37,12 +37,21 @@ export async function DELETE(req: Request, { params }: Params) {
       return NextResponse.json({ error: "Raport inexistent." }, { status: 404 });
     }
 
-    const { error: rmErr } = await supabase.storage.from(REPORTS_BUCKET).remove([row.pdf_path]);
+    const bucket = reportsStorageBucket();
+    let rmErr: { message?: string } | null = null;
+    try {
+      const admin = createAdminClient();
+      const rm = await admin.storage.from(bucket).remove([row.pdf_path]);
+      rmErr = rm.error;
+    } catch {
+      const rm = await supabase.storage.from(bucket).remove([row.pdf_path]);
+      rmErr = rm.error;
+    }
     if (rmErr) {
       /* Continuăm ștergerea din DB chiar dacă fișierul lipsea din Storage. */
       const msg = rmErr.message?.toLowerCase() ?? "";
       if (!msg.includes("not found") && !msg.includes("does not exist")) {
-        throw rmErr;
+        throw new Error(rmErr.message ?? "Eroare storage la ștergere.");
       }
     }
 
