@@ -6,12 +6,37 @@ import { NextResponse } from "next/server";
 
 type Params = { params: Promise<{ boreholeId: string }> };
 
+function isUuid(v: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v.trim());
+}
+
+async function resolveBoreholeUuid(supabase: { from: (t: string) => any }, boreholeId: string): Promise<string> {
+  const raw = boreholeId.trim();
+  if (isUuid(raw)) return raw;
+  const { data: byCode } = await supabase
+    .from("boreholes")
+    .select("id")
+    .eq("code", raw)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (byCode?.id) return String(byCode.id);
+  const { data: byName } = await supabase
+    .from("boreholes")
+    .select("id")
+    .eq("name", raw)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (byName?.id) return String(byName.id);
+  throw new Error(`Foraj invalid: "${boreholeId}". Așteptam UUID (id) sau un cod/nume existent.`);
+}
+
 export async function GET(req: Request, { params }: Params) {
   try {
     const auth = await requireAuth();
     if (!auth.ok) return auth.res;
     const { supabase } = auth;
     const { boreholeId } = await params;
+    const boreholeUuid = await resolveBoreholeUuid(supabase, boreholeId);
     const { searchParams } = new URL(req.url);
     const { page, pageSize, from, to } = parsePagination(searchParams);
     const q = (searchParams.get("q") ?? "").trim();
@@ -19,7 +44,7 @@ export async function GET(req: Request, { params }: Params) {
     let query = supabase
       .from("samples")
       .select("*", { count: "exact" })
-      .eq("borehole_id", boreholeId)
+      .eq("borehole_id", boreholeUuid)
       .is("deleted_at", null)
       .order("code", { ascending: true })
       .range(from, to);
@@ -48,6 +73,7 @@ export async function POST(req: Request, { params }: Params) {
     if (!auth.ok) return auth.res;
     const { supabase } = auth;
     const { boreholeId } = await params;
+    const boreholeUuid = await resolveBoreholeUuid(supabase, boreholeId);
     const body = (await req.json()) as Record<string, unknown>;
     const autoNumber = body.auto_number === true || body.auto_number === "true";
     let code = String(body.code ?? "").trim();
@@ -65,7 +91,7 @@ export async function POST(req: Request, { params }: Params) {
         p_borehole_id: string;
         p_test_type: string;
         p_day?: string;
-      } = { p_borehole_id: boreholeId, p_test_type: tt };
+      } = { p_borehole_id: boreholeUuid, p_test_type: tt };
       if (dateIso) rpcArgs.p_day = dateIso;
 
       const { data: allocated, error: rpcErr } = await supabase.rpc("allocate_next_sample_code", rpcArgs);
@@ -85,7 +111,7 @@ export async function POST(req: Request, { params }: Params) {
     }
 
     const baseRow = {
-      borehole_id: boreholeId,
+      borehole_id: boreholeUuid,
       depth_from: body.depth_from != null && body.depth_from !== "" ? Number(body.depth_from) : null,
       depth_to: body.depth_to != null && body.depth_to !== "" ? Number(body.depth_to) : null,
       lithology: body.lithology ? String(body.lithology) : null,
@@ -122,7 +148,7 @@ export async function POST(req: Request, { params }: Params) {
         p_borehole_id: string;
         p_test_type: string;
         p_day?: string;
-      } = { p_borehole_id: boreholeId, p_test_type: tt };
+      } = { p_borehole_id: boreholeUuid, p_test_type: tt };
       if (dateIso) rpcArgs.p_day = dateIso;
 
       const { data: allocated, error: rpcErr } = await supabase.rpc("allocate_next_sample_code", rpcArgs);
