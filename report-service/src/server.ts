@@ -33,13 +33,30 @@ app.use((req, res, next) => {
 
 app.use(express.json({ limit: "1mb" }));
 
-/** Trim + fără zero-width; `origin` pentru createClient (evită ENOTFOUND din spații în env). */
+/** Trim + zero-width + ghilimele + `sb_sb_` duplicat pe cheie; URL → `origin`. */
 function supabaseProjectUrlAndKey(): { url: string; key: string } {
   const strip = (s: string) => s.trim().replace(/[\u200b-\u200d\ufeff]/g, "");
-  const rawUrl = strip(process.env.SUPABASE_URL ?? "");
-  const key = strip(process.env.SUPABASE_SERVICE_ROLE_KEY ?? "");
+  const rawUrl = strip(process.env.SUPABASE_URL ?? "").replace(/\s+/g, "");
+  let key = strip(process.env.SUPABASE_SERVICE_ROLE_KEY ?? "");
+  key = key.replace(/\u201c|\u201d/g, '"').replace(/\u2018|\u2019/g, "'");
+  while ((key.startsWith('"') && key.endsWith('"')) || (key.startsWith("'") && key.endsWith("'"))) {
+    key = strip(key.slice(1, -1));
+  }
+  while (key.startsWith("sb_sb_")) {
+    key = key.slice(3);
+  }
   if (!rawUrl || !key) {
     throw new Error("Configurați SUPABASE_URL și SUPABASE_SERVICE_ROLE_KEY.");
+  }
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(key)) {
+    throw new Error(
+      "SUPABASE_SERVICE_ROLE_KEY pare un UUID, nu cheia API. În Supabase → Settings → API Keys folosiți Secret (service_role): sb_secret_… sau eyJ….",
+    );
+  }
+  if (key.startsWith("sb_publishable_")) {
+    throw new Error(
+      "SUPABASE_SERVICE_ROLE_KEY este cheia Publishable. Folosiți Secret key (service_role) pe Railway.",
+    );
   }
   let url: string;
   try {
