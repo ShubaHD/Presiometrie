@@ -17,6 +17,7 @@ import { parsePointLoadReportMetadata } from "./point-load-report-metadata.js";
 import { parseUnconfinedSoilCurvePayload, stressStrainSeriesKpa } from "./unconfined-soil-curve.js";
 import { parseUnconfinedSoilReportMetadata } from "./unconfined-soil-report-metadata.js";
 import { parseUcsReportMetadata } from "./ucs-report-metadata.js";
+import { buildPresiometryPdfOverlays } from "./presiometry-pdf-overlays.js";
 
 export interface ReportPayload {
   generatedAt: string;
@@ -181,6 +182,10 @@ function fmtNum(v: unknown, decimals = 3): string {
   return n.toFixed(decimals);
 }
 
+function escXml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
 function svgLineChart(opts: {
   width?: number;
   height?: number;
@@ -188,19 +193,43 @@ function svgLineChart(opts: {
   xLabel: string;
   yLabel: string;
   points: Array<{ x: number; y: number }>;
+  padAxesRatio?: number;
+  bands?: Array<{ x1: number; x2: number; fill: string; opacity?: number }>;
+  segmentLines?: Array<{ x1: number; y1: number; x2: number; y2: number; stroke: string; dash?: string }>;
 }): string | null {
   const width = opts.width ?? 820;
   const height = opts.height ?? 260;
   const pts = opts.points.filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y));
   if (pts.length < 2) return null;
 
-  const minX = Math.min(...pts.map((p) => p.x));
-  const maxX = Math.max(...pts.map((p) => p.x));
-  const minY = Math.min(...pts.map((p) => p.y));
-  const maxY = Math.max(...pts.map((p) => p.y));
-  const dx = maxX - minX;
-  const dy = maxY - minY;
+  let minX = Math.min(...pts.map((p) => p.x));
+  let maxX = Math.max(...pts.map((p) => p.x));
+  let minY = Math.min(...pts.map((p) => p.y));
+  let maxY = Math.max(...pts.map((p) => p.y));
+  for (const b of opts.bands ?? []) {
+    if (!Number.isFinite(b.x1) || !Number.isFinite(b.x2)) continue;
+    minX = Math.min(minX, b.x1, b.x2);
+    maxX = Math.max(maxX, b.x1, b.x2);
+  }
+  for (const s of opts.segmentLines ?? []) {
+    if (![s.x1, s.x2, s.y1, s.y2].every((v) => Number.isFinite(v))) continue;
+    minX = Math.min(minX, s.x1, s.x2);
+    maxX = Math.max(maxX, s.x1, s.x2);
+    minY = Math.min(minY, s.y1, s.y2);
+    maxY = Math.max(maxY, s.y1, s.y2);
+  }
+  let dx = maxX - minX;
+  let dy = maxY - minY;
   if (!(dx > 0) || !(dy > 0)) return null;
+  const pr = opts.padAxesRatio ?? 0;
+  if (pr > 0) {
+    minX -= dx * pr;
+    maxX += dx * pr;
+    minY -= dy * pr;
+    maxY += dy * pr;
+    dx = maxX - minX;
+    dy = maxY - minY;
+  }
 
   const padL = 52;
   const padR = 16;
@@ -215,6 +244,24 @@ function svgLineChart(opts: {
     .map((p, i) => `${i === 0 ? "M" : "L"} ${sx(p.x).toFixed(2)} ${sy(p.y).toFixed(2)}`)
     .join(" ");
 
+  const bandsSvg = (opts.bands ?? [])
+    .map((b) => {
+      const x1 = Math.min(b.x1, b.x2);
+      const x2 = Math.max(b.x1, b.x2);
+      const rx = sx(x1);
+      const rw = Math.max(0.5, sx(x2) - sx(x1));
+      const op = b.opacity ?? 0.28;
+      return `<rect x="${rx.toFixed(2)}" y="${padT}" width="${rw.toFixed(2)}" height="${innerH}" fill="${escXml(b.fill)}" opacity="${op}"/>`;
+    })
+    .join("\n");
+
+  const segSvg = (opts.segmentLines ?? [])
+    .map((s) => {
+      const dash = s.dash ? ` stroke-dasharray="${escXml(s.dash)}"` : "";
+      return `<line x1="${sx(s.x1).toFixed(2)}" y1="${sy(s.y1).toFixed(2)}" x2="${sx(s.x2).toFixed(2)}" y2="${sy(s.y2).toFixed(2)}" stroke="${escXml(s.stroke)}" stroke-width="1.6"${dash} />`;
+    })
+    .join("\n");
+
   const axis = `
     <line x1="${padL}" y1="${padT}" x2="${padL}" y2="${padT + innerH}" stroke="#888" stroke-width="1" />
     <line x1="${padL}" y1="${padT + innerH}" x2="${padL + innerW}" y2="${padT + innerH}" stroke="#888" stroke-width="1" />
@@ -226,11 +273,13 @@ function svgLineChart(opts: {
     .t { font: 12px Arial, sans-serif; fill: #222; }
     .m { font: 10px Arial, sans-serif; fill: #444; }
   </style>
-  <text class="t" x="${padL}" y="16">${opts.title}</text>
+  <text class="t" x="${padL}" y="16">${escXml(opts.title)}</text>
   ${axis}
+  ${bandsSvg}
   <path d="${path}" fill="none" stroke="#2a6fdb" stroke-width="1.5" />
-  <text class="m" x="${padL + innerW / 2}" y="${height - 10}" text-anchor="middle">${opts.xLabel}</text>
-  <text class="m" x="14" y="${padT + innerH / 2}" transform="rotate(-90 14 ${padT + innerH / 2})" text-anchor="middle">${opts.yLabel}</text>
+  ${segSvg}
+  <text class="m" x="${padL + innerW / 2}" y="${height - 10}" text-anchor="middle">${escXml(opts.xLabel)}</text>
+  <text class="m" x="14" y="${padT + innerH / 2}" transform="rotate(-90 14 ${padT + innerH / 2})" text-anchor="middle">${escXml(opts.yLabel)}</text>
 </svg>`;
 }
 
@@ -2957,6 +3006,28 @@ export async function buildPresiometryPayload(
     })
     .filter((p) => Number.isFinite(p.p_kpa) && Number.isFinite(p.x));
 
+  const measRows = (measurements as Array<{ key: string; value: unknown }> | null | undefined) ?? [];
+  const seatingRMeas = measurementNumber(measRows, "pmt_seating_r_mm");
+  const seatingR0 =
+    xKind === "radius_mm"
+      ? Number.isFinite(seatingRMeas) && seatingRMeas > 0
+        ? seatingRMeas
+        : 38
+      : curvePts.length
+        ? curvePts[0]!.x
+        : 0;
+
+  const overlaysPdf =
+    tt !== "presiometry_program_c" && curvePts.length >= 2 && curveObj
+      ? buildPresiometryPdfOverlays({
+          testType: tt,
+          xKind,
+          curveObj,
+          settingsJson: (test as { presiometry_settings_json?: unknown }).presiometry_settings_json,
+          seatingR0: xKind === "radius_mm" ? seatingR0 : curvePts[0]!.x,
+        })
+      : null;
+
   const svgPR =
     curvePts.length >= 2
       ? svgLineChart({
@@ -2964,17 +3035,25 @@ export async function buildPresiometryPayload(
           xLabel: xKind === "radius_mm" ? "R (mm)" : "V (cm³)",
           yLabel: "p (kPa)",
           points: curvePts.map((p) => ({ x: p.x, y: p.p_kpa })),
+          padAxesRatio: tt !== "presiometry_program_c" ? 0.06 : undefined,
+          bands: overlaysPdf?.bandsPr,
+          segmentLines: overlaysPdf?.linesPr,
         })
       : null;
 
-  const r0 = curvePts[0]?.r_mm ?? 0;
   const svgPdR =
     curvePts.length >= 2
       ? svgLineChart({
-          title: xKind === "radius_mm" ? "Curba p–ΔR" : "Curba p–ΔV",
-          xLabel: xKind === "radius_mm" ? "ΔR (mm)" : "ΔV (cm³)",
+          title: xKind === "radius_mm" ? "Curba p–δ" : "Curba p–ΔV",
+          xLabel: xKind === "radius_mm" ? "δ (mm)" : "ΔV (cm³)",
           yLabel: "p (kPa)",
-          points: curvePts.map((p) => ({ x: xKind === "radius_mm" ? p.r_mm - r0 : p.v_cm3 - (curvePts[0]?.v_cm3 ?? 0), y: p.p_kpa })),
+          points: curvePts.map((p) => ({
+            x: xKind === "radius_mm" ? p.r_mm - seatingR0 : p.v_cm3 - (curvePts[0]?.v_cm3 ?? 0),
+            y: p.p_kpa,
+          })),
+          padAxesRatio: tt !== "presiometry_program_c" ? 0.06 : undefined,
+          bands: overlaysPdf?.bandsPdr,
+          segmentLines: overlaysPdf?.linesPdr,
         })
       : null;
 

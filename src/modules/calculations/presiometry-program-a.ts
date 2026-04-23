@@ -1,14 +1,8 @@
 import type { PresiometryCurvePayload } from "@/lib/presiometry-curve";
 import type { CalculationFn, CalculationOutput, MeasurementMap, ResultLine } from "./types";
-import {
-  detectLoopsByPressure,
-  extractPvPoints,
-  linearRegressionYonX,
-  pWindow3070,
-  pickPointsInPressureWindow,
-  xAxisLabel,
-} from "./presiometry-utils";
 import { parsePresiometryManualSettings } from "./presiometry-manual";
+import { buildProgramARegressionSegments } from "./presiometry-regression-segments";
+import { detectLoopsByPressure, extractPvPoints, pWindow3070, xAxisLabel } from "./presiometry-utils";
 
 function n(v: unknown): number | null {
   if (v == null) return null;
@@ -52,7 +46,6 @@ export const calculatePresiometryProgramA: CalculationFn = (m: MeasurementMap, c
   const depthM = n(m.pmt_depth_m);
   out.intermediate.push(line(10, "pmt_depth_m", "Adâncime z", depthM, "m", 2, false));
 
-  // Basic extrema
   let pMax = -Infinity;
   let pMin = Infinity;
   for (const p of pts) {
@@ -72,27 +65,24 @@ export const calculatePresiometryProgramA: CalculationFn = (m: MeasurementMap, c
     );
   }
 
-  // First loading modulus: auto 30-70% OR manual selection
   const firstPeak = loops[0]?.peakIndex ?? Math.max(1, Math.floor(pts.length / 3));
   const p0 = pts[0]!.p_kpa;
   const pPk = pts[Math.min(firstPeak, pts.length - 1)]!.p_kpa;
   const wLoad = pWindow3070(p0, pPk);
-  if (manual?.mode === "manual" && manual.load1) {
-    const from = Math.max(0, manual.load1.from);
-    const to = Math.min(pts.length - 1, manual.load1.to);
-    const xsV: number[] = [];
-    const ysP: number[] = [];
-    for (let i = from; i <= to; i++) {
-      xsV.push(pts[i]!.x);
-      ysP.push(pts[i]!.p_kpa);
-    }
-    const reg = linearRegressionYonX(xsV, ysP);
+
+  const segments = buildProgramARegressionSegments(pts, manual, loops);
+
+  if (segments.load1) {
+    const reg = segments.load1.regression;
     const slope = reg.slope != null ? Math.abs(reg.slope) : null;
+    const isManual = segments.load1.source === "manual";
     out.final.push(
       line(
         100,
         `pmt_a_load1_${axis.keySuffix}`,
-        `Modul (manual) prima încărcare: |Δp/Δ${axis.label}|`,
+        isManual
+          ? `Modul (manual) prima încărcare: |Δp/Δ${axis.label}|`
+          : `Modul (proxy) prima încărcare 30–70%: |Δp/Δ${axis.label}|`,
         slope,
         `kPa/${axis.unit}`,
         3,
@@ -100,78 +90,24 @@ export const calculatePresiometryProgramA: CalculationFn = (m: MeasurementMap, c
       line(110, "pmt_a_load1_r2", "Regresie prima încărcare: R²", reg.r2, "—", 3, false),
       line(120, "pmt_a_load1_n", "Regresie prima încărcare: N puncte", reg.n, "—", 0, false),
     );
-  } else if (wLoad) {
-    const { xsV, ysP } = pickPointsInPressureWindow(
-      pts,
-      0,
-      Math.min(firstPeak, pts.length - 1),
-      wLoad.p30,
-      wLoad.p70,
-    );
-    const reg = linearRegressionYonX(xsV, ysP); // p = a*v + b
-    const slope = reg.slope != null ? Math.abs(reg.slope) : null;
-    out.final.push(
-      line(
-        100,
-        `pmt_a_load1_${axis.keySuffix}`,
-        `Modul (proxy) prima încărcare 30–70%: |Δp/Δ${axis.label}|`,
-        slope,
-        `kPa/${axis.unit}`,
-        3,
-      ),
-      line(110, "pmt_a_load1_r2", "Regresie prima încărcare: R²", reg.r2, "—", 3, false),
-      line(120, "pmt_a_load1_n", "Regresie prima încărcare: N puncte", reg.n, "—", 0, false),
-    );
-  } else {
+  } else if (manual?.mode === "manual" && manual.load1) {
+    out.warnings.push("Prima încărcare (manual): interval invalid sau prea puține puncte pentru regresie.");
+  } else if (!wLoad) {
     out.warnings.push("Nu pot calcula fereastra 30–70% pentru prima încărcare (Δp≤0).");
   }
 
-  // Loop moduli: unloading + reloading for each detected loop
   let order = 200;
-  loops.slice(0, 10).forEach((loop, idx) => {
-    const peak = pts[loop.peakIndex]!;
-    const valley = pts[loop.valleyIndex]!;
-    const w = pWindow3070(valley.p_kpa, peak.p_kpa);
-    if (!w) return;
+  loops.slice(0, 10).forEach((_, idx) => {
+    const pair = segments.loops[idx];
+    if (!pair) return;
 
-    const manLoop = manual?.mode === "manual" ? manual.loops?.[idx] : undefined;
-
-    const un =
-      manual?.mode === "manual" && manLoop?.unload
-        ? (() => {
-            const from = Math.max(0, manLoop.unload!.from);
-            const to = Math.min(pts.length - 1, manLoop.unload!.to);
-            const xsV: number[] = [];
-            const ysP: number[] = [];
-            for (let i = from; i <= to; i++) {
-              xsV.push(pts[i]!.x);
-              ysP.push(pts[i]!.p_kpa);
-            }
-            return { xsV, ysP };
-          })()
-        : pickPointsInPressureWindow(pts, loop.peakIndex, loop.valleyIndex, w.p30, w.p70);
-
-    const re =
-      manual?.mode === "manual" && manLoop?.reload
-        ? (() => {
-            const from = Math.max(0, manLoop.reload!.from);
-            const to = Math.min(pts.length - 1, manLoop.reload!.to);
-            const xsV: number[] = [];
-            const ysP: number[] = [];
-            for (let i = from; i <= to; i++) {
-              xsV.push(pts[i]!.x);
-              ysP.push(pts[i]!.p_kpa);
-            }
-            return { xsV, ysP };
-          })()
-        : pickPointsInPressureWindow(pts, loop.valleyIndex, loop.nextPeakIndex, w.p30, w.p70);
-
-    const regUn = linearRegressionYonX(un.xsV, un.ysP);
-    const regRe = linearRegressionYonX(re.xsV, re.ysP);
+    const regUn = pair.unload?.regression ?? { slope: null, intercept: null, r2: null, n: 0 };
+    const regRe = pair.reload?.regression ?? { slope: null, intercept: null, r2: null, n: 0 };
     const kUn = regUn.slope != null ? Math.abs(regUn.slope) : null;
     const kRe = regRe.slope != null ? Math.abs(regRe.slope) : null;
 
     const i = idx + 1;
+    const manLoop = manual?.mode === "manual" ? manual.loops?.[idx] : undefined;
     out.final.push(
       line(
         order,
@@ -197,4 +133,3 @@ export const calculatePresiometryProgramA: CalculationFn = (m: MeasurementMap, c
 
   return out;
 };
-

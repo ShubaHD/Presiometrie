@@ -1,14 +1,8 @@
 import type { PresiometryCurvePayload } from "@/lib/presiometry-curve";
 import type { CalculationFn, CalculationOutput, MeasurementMap, ResultLine } from "./types";
-import {
-  detectLoopsByPressure,
-  extractPvPoints,
-  linearRegressionYonX,
-  pWindow3070,
-  pickPointsInPressureWindow,
-  xAxisLabel,
-} from "./presiometry-utils";
 import { parsePresiometryManualSettings } from "./presiometry-manual";
+import { buildProgramBRegressionSegments } from "./presiometry-regression-segments";
+import { detectLoopsByPressure, extractPvPoints, xAxisLabel } from "./presiometry-utils";
 
 function line(
   display_order: number,
@@ -50,51 +44,20 @@ export const calculatePresiometryProgramB: CalculationFn = (_m: MeasurementMap, 
     return out;
   }
 
-  // Program B focuses on loop moduli (unload + reload).
+  const segments = buildProgramBRegressionSegments(pts, manual, loops);
+
   let order = 100;
-  loops.slice(0, 10).forEach((loop, idx) => {
-    const peak = pts[loop.peakIndex]!;
-    const valley = pts[loop.valleyIndex]!;
-    const w = pWindow3070(valley.p_kpa, peak.p_kpa);
-    if (!w) return;
+  loops.slice(0, 10).forEach((_, idx) => {
+    const pair = segments[idx];
+    if (!pair) return;
 
-    const manLoop = manual?.mode === "manual" ? manual.loops?.[idx] : undefined;
-    const un =
-      manual?.mode === "manual" && manLoop?.unload
-        ? (() => {
-            const from = Math.max(0, manLoop.unload!.from);
-            const to = Math.min(pts.length - 1, manLoop.unload!.to);
-            const xsV: number[] = [];
-            const ysP: number[] = [];
-            for (let i = from; i <= to; i++) {
-              xsV.push(pts[i]!.x);
-              ysP.push(pts[i]!.p_kpa);
-            }
-            return { xsV, ysP };
-          })()
-        : pickPointsInPressureWindow(pts, loop.peakIndex, loop.valleyIndex, w.p30, w.p70);
-
-    const re =
-      manual?.mode === "manual" && manLoop?.reload
-        ? (() => {
-            const from = Math.max(0, manLoop.reload!.from);
-            const to = Math.min(pts.length - 1, manLoop.reload!.to);
-            const xsV: number[] = [];
-            const ysP: number[] = [];
-            for (let i = from; i <= to; i++) {
-              xsV.push(pts[i]!.x);
-              ysP.push(pts[i]!.p_kpa);
-            }
-            return { xsV, ysP };
-          })()
-        : pickPointsInPressureWindow(pts, loop.valleyIndex, loop.nextPeakIndex, w.p30, w.p70);
-
-    const regUn = linearRegressionYonX(un.xsV, un.ysP);
-    const regRe = linearRegressionYonX(re.xsV, re.ysP);
+    const regUn = pair.unload?.regression ?? { slope: null, intercept: null, r2: null, n: 0 };
+    const regRe = pair.reload?.regression ?? { slope: null, intercept: null, r2: null, n: 0 };
     const kUn = regUn.slope != null ? Math.abs(regUn.slope) : null;
     const kRe = regRe.slope != null ? Math.abs(regRe.slope) : null;
 
     const i = idx + 1;
+    const manLoop = manual?.mode === "manual" ? manual.loops?.[idx] : undefined;
     out.final.push(
       line(
         order,
@@ -120,4 +83,3 @@ export const calculatePresiometryProgramB: CalculationFn = (_m: MeasurementMap, 
 
   return out;
 };
-

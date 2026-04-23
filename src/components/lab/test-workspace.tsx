@@ -15,7 +15,7 @@ import { parsePresiometryCurvePayload } from "@/lib/presiometry-curve";
 import { validateMeasurementsForTestType } from "@/lib/measurement-schemas";
 import { newTestOptionLabel } from "@/lib/test-type-options";
 import type { TestMeasurement, TestResult, TestRow, TestType } from "@/types/lab";
-import { Loader2 } from "lucide-react";
+import { Crosshair, Loader2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { LabBreadcrumb } from "./lab-breadcrumb";
@@ -24,6 +24,7 @@ import {
   Legend,
   Line,
   LineChart,
+  ReferenceArea,
   ReferenceDot,
   ReferenceLine,
   ResponsiveContainer,
@@ -31,8 +32,15 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { detectLoopsByPressure, pWindow3070 } from "@/modules/calculations/presiometry-utils";
+import type { PresiometryManualSettings } from "@/modules/calculations/presiometry-manual";
 import { parsePresiometryManualSettings } from "@/modules/calculations/presiometry-manual";
+import type { PresiometryRegressionSegment } from "@/modules/calculations/presiometry-regression-segments";
+import {
+  buildProgramARegressionSegments,
+  buildProgramBRegressionSegments,
+  tangentEndpointsRawX,
+} from "@/modules/calculations/presiometry-regression-segments";
+import { detectLoopsByPressure, extractPvPoints, pWindow3070 } from "@/modules/calculations/presiometry-utils";
 
 type ApiGet = {
   test: TestRow & {
@@ -71,6 +79,62 @@ function axisDomainPadded(values: number[], padRatio = 0.06): [number, number] |
   const pad =
     span > 0 ? span * padRatio : Math.max(Math.abs(lo), Math.abs(hi), 1e-6) * Math.max(padRatio, 0.02);
   return [lo - pad, hi + pad];
+}
+
+function toIndex(s: string): number | null {
+  const n = Number(String(s ?? "").trim());
+  return Number.isFinite(n) ? Math.floor(n) : null;
+}
+
+function indexRange(a: string, b: string): { from: number; to: number } | null {
+  const from = toIndex(a);
+  const to = toIndex(b);
+  if (from == null || to == null) return null;
+  if (from === to) return null;
+  return { from: Math.min(from, to), to: Math.max(from, to) };
+}
+
+/** Manual efectiv pentru previzualizare grafic: draft dacă mod manual, altfel setările salvate. */
+function buildEffectiveManual(
+  draft: {
+    mode: "auto" | "manual";
+    load1_from: string;
+    load1_to: string;
+    loops: Array<{ unload_from: string; unload_to: string; reload_from: string; reload_to: string }>;
+  },
+  saved: PresiometryManualSettings | null,
+  xKind: "radius_mm" | "volume_cm3",
+): PresiometryManualSettings {
+  if (draft.mode === "auto") return saved ?? { mode: "auto" };
+  const load1 = indexRange(draft.load1_from, draft.load1_to);
+  const loops = draft.loops.map((row) => ({
+    unload: indexRange(row.unload_from, row.unload_to),
+    reload: indexRange(row.reload_from, row.reload_to),
+  }));
+  return { mode: "manual", x_kind: xKind, load1, loops };
+}
+
+function tangentLineTwoPoints(
+  seg: PresiometryRegressionSegment,
+  space: "raw" | "delta",
+  r0: number,
+): Array<{ x: number; p_kpa: number }> {
+  const { slope, intercept } = seg.regression;
+  if (slope == null || intercept == null || seg.xsV.length < 1) return [];
+  const xMin = Math.min(...seg.xsV);
+  const xMax = Math.max(...seg.xsV);
+  const e = tangentEndpointsRawX(slope, intercept, xMin, xMax, 0.08);
+  if (!e) return [];
+  if (space === "raw") {
+    return [
+      { x: e.x1, p_kpa: e.p1 },
+      { x: e.x2, p_kpa: e.p2 },
+    ];
+  }
+  return [
+    { x: e.x1 - r0, p_kpa: e.p1 },
+    { x: e.x2 - r0, p_kpa: e.p2 },
+  ];
 }
 
 export function TestWorkspace({
@@ -124,6 +188,8 @@ export function TestWorkspace({
 
   const xKind = curve?.x_kind === "radius_mm" ? "radius_mm" : "volume_cm3";
   const xLabel = xKind === "radius_mm" ? "R (mm)" : "V (cm³)";
+  /** Deplasare radială corectată față de așezare (SR EN ISO 22476-5 — notație δ); în date = Δ față de R la așezare. */
+  const xLabelDelta = xKind === "radius_mm" ? "δ (mm)" : "ΔV (cm³)";
 
   const byKey = useMemo(() => {
     const m = new Map<string, TestMeasurement>();
@@ -143,37 +209,28 @@ export function TestWorkspace({
   }, [byKey]);
 
   const chartSeries = useMemo(() => {
-    const pts = (curve?.points ?? [])
-      .map((p) => {
-        const p_kpa = typeof p.p_kpa === "number" ? p.p_kpa : Number(p.p_kpa);
-        const r_mm = p.r_mm ?? p.v_cm3;
-        const v_cm3 = p.v_cm3;
-        const x = xKind === "radius_mm" ? Number(r_mm) : Number(v_cm3);
-        return { p_kpa, x, r_mm: Number(r_mm), v_cm3: Number(v_cm3) };
-      })
-      .filter((p) => Number.isFinite(p.p_kpa) && Number.isFinite(p.x));
-    if (pts.length === 0)
+    const pvPts = extractPvPoints(curve);
+    if (pvPts.length === 0)
       return {
-        pr: [],
-        pdr: [],
-        loops: [],
+        pr: [] as Array<{ x: number; p_kpa: number; idx: number }>,
+        pdr: [] as Array<{ x: number; p_kpa: number; idx: number }>,
+        loops: [] as ReturnType<typeof detectLoopsByPressure>,
         w3070: null as null | { p30: number; p70: number },
         prXDomain: undefined as [number, number] | undefined,
+        pdrXDomain: undefined as [number, number] | undefined,
+        nPoints: 0,
+        r0: 0,
       };
-    const r0 = xKind === "radius_mm" ? seatingRmm : pts[0]!.v_cm3;
-    const pr = pts.map((p) => ({ x: p.x, p_kpa: p.p_kpa }));
-    const pdr =
-      xKind === "radius_mm"
-        ? pts.map((p) => ({ x: p.r_mm - r0, p_kpa: p.p_kpa }))
-        : pts.map((p) => ({ x: p.v_cm3 - r0, p_kpa: p.p_kpa }));
-    const loops = detectLoopsByPressure(
-      pts.map((p) => ({ p_kpa: p.p_kpa, x: p.x, x_kind: xKind as "radius_mm" | "volume_cm3" })),
-    );
-    const pMin = Math.min(...pts.map((p) => p.p_kpa));
-    const pMax = Math.max(...pts.map((p) => p.p_kpa));
+    const r0 = xKind === "radius_mm" ? seatingRmm : pvPts[0]!.x;
+    const pr = pvPts.map((p, idx) => ({ x: p.x, p_kpa: p.p_kpa, idx }));
+    const pdr = pvPts.map((p, idx) => ({ x: p.x - r0, p_kpa: p.p_kpa, idx }));
+    const loops = detectLoopsByPressure(pvPts);
+    const pMin = Math.min(...pvPts.map((p) => p.p_kpa));
+    const pMax = Math.max(...pvPts.map((p) => p.p_kpa));
     const w3070 = pWindow3070(pMin, pMax);
     const prXDomain = axisDomainPadded(pr.map((p) => p.x));
-    return { pr, pdr, loops, w3070, prXDomain };
+    const pdrXDomain = axisDomainPadded(pdr.map((p) => p.x));
+    return { pr, pdr, loops, w3070, prXDomain, pdrXDomain, nPoints: pvPts.length, r0 };
   }, [curve, xKind, seatingRmm]);
 
   const manualSettings = useMemo(() => {
@@ -215,6 +272,166 @@ export function TestWorkspace({
       }),
     }));
   }, [manualSettings]);
+
+  const effectiveManual = useMemo(
+    () => buildEffectiveManual(manualDraft, manualSettings, xKind),
+    [manualDraft, manualSettings, xKind],
+  );
+
+  const regressionSegments = useMemo(() => {
+    if (!okType || !curve || chartSeries.nPoints < 2) return null;
+    const pvPts = extractPvPoints(curve);
+    const loops = detectLoopsByPressure(pvPts);
+    if (okType === "presiometry_program_a") {
+      return buildProgramARegressionSegments(pvPts, effectiveManual, loops);
+    }
+    if (okType === "presiometry_program_b") {
+      return { load1: null, loops: buildProgramBRegressionSegments(pvPts, effectiveManual, loops) };
+    }
+    return null;
+  }, [okType, curve, effectiveManual, chartSeries.nPoints]);
+
+  const presiometryViz = useMemo(() => {
+    type Area = { key: string; x1: number; x2: number; fill: string };
+    type Tan = { key: string; label: string; pts: Array<{ x: number; p_kpa: number }>; stroke: string };
+    const empty = { areasPr: [] as Area[], areasPdr: [] as Area[], tangentsPr: [] as Tan[], tangentsPdr: [] as Tan[] };
+    if (!regressionSegments || !curve) return empty;
+    const pv = extractPvPoints(curve);
+    if (!pv.length) return empty;
+    const r0 = chartSeries.r0;
+    const fills = ["oklch(0.55 0.12 250 / 0.12)", "oklch(0.55 0.14 30 / 0.12)", "oklch(0.5 0.12 150 / 0.12)"];
+    const strokes = ["oklch(0.42 0.16 250)", "oklch(0.5 0.18 30)", "oklch(0.42 0.14 150)", "oklch(0.45 0.12 300)"];
+    const pickStroke = (i: number) => strokes[i % strokes.length]!;
+
+    const xExtent = (seg: PresiometryRegressionSegment | null): [number, number] | null => {
+      if (!seg) return null;
+      if (seg.indexFrom != null && seg.indexTo != null && pv[seg.indexFrom!] && pv[seg.indexTo!]) {
+        const a = pv[seg.indexFrom]!.x;
+        const b = pv[seg.indexTo]!.x;
+        return [Math.min(a, b), Math.max(a, b)];
+      }
+      if (seg.xsV.length) return [Math.min(...seg.xsV), Math.max(...seg.xsV)];
+      return null;
+    };
+
+    const areasPr: Area[] = [];
+    const areasPdr: Area[] = [];
+    let fi = 0;
+
+    const pushSeg = (seg: PresiometryRegressionSegment | null, key: string) => {
+      const xr = xExtent(seg);
+      if (!xr || !seg) return;
+      const fill = fills[fi % fills.length]!;
+      fi++;
+      areasPr.push({ key: `a-pr-${key}`, x1: xr[0], x2: xr[1], fill });
+      areasPdr.push({
+        key: `a-pdr-${key}`,
+        x1: xr[0] - r0,
+        x2: xr[1] - r0,
+        fill,
+      });
+    };
+
+    const tangentsPr: Tan[] = [];
+    const tangentsPdr: Tan[] = [];
+    let ti = 0;
+
+    const pushTan = (seg: PresiometryRegressionSegment | null) => {
+      if (!seg) return;
+      const pr = tangentLineTwoPoints(seg, "raw", r0);
+      if (pr.length < 2) return;
+      const pdr = tangentLineTwoPoints(seg, "delta", r0);
+      if (pdr.length < 2) return;
+      const stroke = pickStroke(ti++);
+      tangentsPr.push({
+        key: `t-pr-${seg.symbol}`,
+        label: seg.symbol,
+        pts: pr.map(({ x, p_kpa }) => ({ x, p_kpa })),
+        stroke,
+      });
+      tangentsPdr.push({
+        key: `t-pdr-${seg.symbol}`,
+        label: seg.symbol,
+        pts: pdr.map(({ x, p_kpa }) => ({ x, p_kpa })),
+        stroke,
+      });
+    };
+
+    if (regressionSegments.load1) {
+      pushSeg(regressionSegments.load1, "L1");
+      pushTan(regressionSegments.load1);
+    }
+    regressionSegments.loops.forEach((pair, i) => {
+      if (pair.unload) {
+        pushSeg(pair.unload, `U${i + 1}`);
+        pushTan(pair.unload);
+      }
+      if (pair.reload) {
+        pushSeg(pair.reload, `R${i + 1}`);
+        pushTan(pair.reload);
+      }
+    });
+
+    return { areasPr, areasPdr, tangentsPr, tangentsPdr };
+  }, [regressionSegments, curve, chartSeries.r0]);
+
+  type ChartPickTarget =
+    | null
+    | "load1_from"
+    | "load1_to"
+    | { k: "unload_from"; loop: number }
+    | { k: "unload_to"; loop: number }
+    | { k: "reload_from"; loop: number }
+    | { k: "reload_to"; loop: number };
+
+  const [chartPick, setChartPick] = useState<ChartPickTarget>(null);
+
+  const applyChartPickIndex = useCallback(
+    (idx: number) => {
+      if (chartPick == null) return;
+      setManualDraft((d) => {
+        const next = { ...d, mode: "manual" as const };
+        if (chartPick === "load1_from") return { ...next, load1_from: String(idx) };
+        if (chartPick === "load1_to") return { ...next, load1_to: String(idx) };
+        if ("k" in chartPick) {
+          const { k, loop } = chartPick;
+          const rows = d.loops.map((row, j) => {
+            if (j !== loop) return row;
+            if (k === "unload_from") return { ...row, unload_from: String(idx) };
+            if (k === "unload_to") return { ...row, unload_to: String(idx) };
+            if (k === "reload_from") return { ...row, reload_from: String(idx) };
+            return { ...row, reload_to: String(idx) };
+          });
+          return { ...next, loops: rows };
+        }
+        return d;
+      });
+      setChartPick(null);
+    },
+    [chartPick],
+  );
+
+  const lineDotForPicking =
+    chartPick && manualDraft.mode === "manual"
+      ? (props: { cx?: number; cy?: number; index?: number }) => {
+          const { cx, cy, index } = props;
+          if (cx == null || cy == null || index == null) return <g key={`d-${index}`} />;
+          return (
+            <circle
+              key={`pick-${index}`}
+              cx={cx}
+              cy={cy}
+              r={12}
+              fill="rgba(0,0,0,0.02)"
+              style={{ cursor: "crosshair" }}
+              onClick={(e) => {
+                e.stopPropagation();
+                applyChartPickIndex(index);
+              }}
+            />
+          );
+        }
+      : false;
 
   const saveManualSettings = async () => {
     if (!okType) return;
@@ -587,10 +804,22 @@ export function TestWorkspace({
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Grafice</CardTitle>
-              <CardDescription>
-                {xKind === "radius_mm"
-                  ? "Elast Logger: p–R și p–ΔR (R în mm)."
-                  : "p–V și p–ΔV (V în cm³)."}
+              <CardDescription className="space-y-1 text-xs">
+                <span>
+                  {xKind === "radius_mm"
+                    ? "p–R (raw) și p–δ (δ = deplasare radială corectată față de R la așezare; ajustați «R așezare» la măsurători)."
+                    : "p–V și p–ΔV (Δ față de primul punct)."}
+                </span>
+                {(okType === "presiometry_program_a" || okType === "presiometry_program_b") && (
+                  <span className="text-muted-foreground block">
+                    Legenda ISO (modul): <span className="font-medium">p</span> = presiune (kPa);{" "}
+                    <span className="font-medium">δ</span> = deplasare radială corectată;{" "}
+                    <span className="font-medium">G_L1</span> = modul de forfecare prima încărcare;{" "}
+                    <span className="font-medium">G_Ui</span> / <span className="font-medium">G_Ri</span> = modul pe
+                    descărcare / reîncărcare (bucle). Benzi = intervale folosite la regresie; linii punctate = tangente
+                    G.
+                  </span>
+                )}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
@@ -598,6 +827,38 @@ export function TestWorkspace({
                 <p className="text-muted-foreground text-sm">Importați seria pentru a vedea graficele.</p>
               ) : (
                 <>
+                  {chartPick ? (
+                    <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-950 dark:text-amber-100">
+                      În tab-ul <strong>Grafice</strong>, click pe un punct al curbei <strong>p–{xKind === "radius_mm" ? "R" : "V"}</strong>{" "}
+                      pentru a seta{" "}
+                      {chartPick === "load1_from" && "«Încărcare 1 (from)»"}
+                      {chartPick === "load1_to" && "«Încărcare 1 (to)»"}
+                      {chartPick != null &&
+                        typeof chartPick === "object" &&
+                        "k" in chartPick &&
+                        chartPick.k === "unload_from" &&
+                        `bucla ${chartPick.loop + 1} unload from`}
+                      {chartPick != null &&
+                        typeof chartPick === "object" &&
+                        "k" in chartPick &&
+                        chartPick.k === "unload_to" &&
+                        `bucla ${chartPick.loop + 1} unload to`}
+                      {chartPick != null &&
+                        typeof chartPick === "object" &&
+                        "k" in chartPick &&
+                        chartPick.k === "reload_from" &&
+                        `bucla ${chartPick.loop + 1} reload from`}
+                      {chartPick != null &&
+                        typeof chartPick === "object" &&
+                        "k" in chartPick &&
+                        chartPick.k === "reload_to" &&
+                        `bucla ${chartPick.loop + 1} reload to`}{" "}
+                      (index în serie).{" "}
+                      <Button type="button" variant="ghost" size="sm" className="ml-2 h-7 px-2" onClick={() => setChartPick(null)}>
+                        Anulează
+                      </Button>
+                    </div>
+                  ) : null}
                   <div className="w-full" style={{ minHeight: 320 }}>
                     <p className="text-muted-foreground mb-2 text-xs">Curba p–{xKind === "radius_mm" ? "R" : "V"}</p>
                     <ResponsiveContainer width="100%" height={280}>
@@ -625,14 +886,46 @@ export function TestWorkspace({
                           contentStyle={{ borderRadius: 8, fontSize: 12 }}
                         />
                         <Legend wrapperStyle={{ fontSize: 12 }} />
+                        {(okType === "presiometry_program_a" || okType === "presiometry_program_b") &&
+                          presiometryViz.areasPr.map((a) => (
+                            <ReferenceArea
+                              key={a.key}
+                              x1={a.x1}
+                              x2={a.x2}
+                              strokeOpacity={0}
+                              fill={a.fill}
+                              ifOverflow="visible"
+                            />
+                          ))}
                         <Line
                           type="monotone"
                           dataKey="p_kpa"
                           stroke="oklch(0.45 0.14 250)"
                           name="p"
-                          dot={false}
+                          dot={lineDotForPicking || false}
                           isAnimationActive={false}
                         />
+                        {(okType === "presiometry_program_a" || okType === "presiometry_program_b") &&
+                          presiometryViz.tangentsPr.map((t) => (
+                            <ReferenceLine
+                              key={t.key}
+                              segment={[
+                                { x: t.pts[0]!.x, y: t.pts[0]!.p_kpa },
+                                { x: t.pts[1]!.x, y: t.pts[1]!.p_kpa },
+                              ]}
+                              stroke={t.stroke}
+                              strokeWidth={2}
+                              strokeDasharray="6 4"
+                              ifOverflow="extendDomain"
+                              label={{
+                                value: t.label,
+                                position: "middle",
+                                fill: t.stroke,
+                                fontSize: 10,
+                                fontWeight: 600,
+                              }}
+                            />
+                          ))}
                         {(okType === "presiometry_program_a" || okType === "presiometry_program_b") &&
                           chartSeries.w3070?.p30 != null &&
                           chartSeries.w3070?.p70 != null && (
@@ -679,14 +972,16 @@ export function TestWorkspace({
                     </ResponsiveContainer>
                     {(okType === "presiometry_program_a" || okType === "presiometry_program_b") ? (
                       <p className="text-muted-foreground mt-1 text-[10px]">
-                        Marcaje: portocaliu = vârf buclă, verde = minim buclă (auto). Liniile punctate = praguri 30% / 70% din domeniul p.
+                        Marcaje: portocaliu = vârf buclă, verde = minim buclă (auto). Portocaliu deschis = praguri 30% /
+                        70% din domeniul p. Benzi colorate = intervale regresie; linii colorate punctat = tangente{" "}
+                        <span className="font-medium">G</span>.
                       </p>
                     ) : null}
                   </div>
 
                   <div className="w-full" style={{ minHeight: 320 }}>
                     <p className="text-muted-foreground mb-2 text-xs">
-                      Curba p–Δ{ xKind === "radius_mm" ? "R" : "V" }
+                      Curba p–{xKind === "radius_mm" ? "δ" : "ΔV"} ({xLabelDelta})
                     </p>
                     <ResponsiveContainer width="100%" height={280}>
                       <LineChart data={chartSeries.pdr} margin={{ top: 8, right: 12, left: 8, bottom: 8 }}>
@@ -694,9 +989,10 @@ export function TestWorkspace({
                         <XAxis
                           type="number"
                           dataKey="x"
+                          domain={chartSeries.pdrXDomain ?? ["auto", "auto"]}
                           tick={{ fontSize: 11 }}
                           label={{
-                            value: xKind === "radius_mm" ? "ΔR (mm)" : "ΔV (cm³)",
+                            value: xLabelDelta,
                             position: "bottom",
                             offset: 0,
                             style: { fontSize: 11 },
@@ -717,6 +1013,17 @@ export function TestWorkspace({
                           contentStyle={{ borderRadius: 8, fontSize: 12 }}
                         />
                         <Legend wrapperStyle={{ fontSize: 12 }} />
+                        {(okType === "presiometry_program_a" || okType === "presiometry_program_b") &&
+                          presiometryViz.areasPdr.map((a) => (
+                            <ReferenceArea
+                              key={a.key}
+                              x1={a.x1}
+                              x2={a.x2}
+                              strokeOpacity={0}
+                              fill={a.fill}
+                              ifOverflow="visible"
+                            />
+                          ))}
                         <Line
                           type="monotone"
                           dataKey="p_kpa"
@@ -725,6 +1032,27 @@ export function TestWorkspace({
                           dot={false}
                           isAnimationActive={false}
                         />
+                        {(okType === "presiometry_program_a" || okType === "presiometry_program_b") &&
+                          presiometryViz.tangentsPdr.map((t) => (
+                            <ReferenceLine
+                              key={t.key}
+                              segment={[
+                                { x: t.pts[0]!.x, y: t.pts[0]!.p_kpa },
+                                { x: t.pts[1]!.x, y: t.pts[1]!.p_kpa },
+                              ]}
+                              stroke={t.stroke}
+                              strokeWidth={2}
+                              strokeDasharray="6 4"
+                              ifOverflow="extendDomain"
+                              label={{
+                                value: t.label,
+                                position: "middle",
+                                fill: t.stroke,
+                                fontSize: 10,
+                                fontWeight: 600,
+                              }}
+                            />
+                          ))}
                       </LineChart>
                     </ResponsiveContainer>
                   </div>
@@ -750,7 +1078,8 @@ export function TestWorkspace({
                   <CardHeader>
                     <CardTitle className="text-sm">Selecții calcul (auto / manual)</CardTitle>
                     <CardDescription className="text-xs">
-                      Dacă buclele nu sunt perfecte, poți seta manual intervalele (index puncte din serie, 0…N-1).
+                      Dacă buclele nu sunt perfecte, setați intervalele (index 0…N-1) sau folosiți «De pe grafic» →
+                      mergeți la tab-ul «Grafice» și click pe curbă.
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-3">
@@ -777,28 +1106,66 @@ export function TestWorkspace({
                         </Button>
                       </div>
                       <span className="text-muted-foreground text-xs">
-                        {curve?.points?.length ? `N=${curve.points.length} puncte` : "Fără serie"}
+                        {chartSeries.nPoints ? `N=${chartSeries.nPoints} puncte (serie pentru calcule)` : "Fără serie"}
                       </span>
                     </div>
 
+                    {chartPick ? (
+                      <p className="text-xs text-amber-800 dark:text-amber-200">
+                        Mergeți la tab-ul «Grafice» și faceți click pe curbă (p–{xKind === "radius_mm" ? "R" : "V"}).
+                      </p>
+                    ) : null}
+
                     {manualDraft.mode === "manual" ? (
                       <div className="space-y-3">
-                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 sm:items-end">
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4 sm:items-end">
                           <div>
                             <Label className="text-xs">Încărcare 1 (from)</Label>
-                            <Input
-                              value={manualDraft.load1_from}
-                              onChange={(e) => setManualDraft((d) => ({ ...d, load1_from: e.target.value }))}
-                              placeholder="ex. 5"
-                            />
+                            <div className="flex gap-1">
+                              <Input
+                                className="min-w-0 flex-1"
+                                value={manualDraft.load1_from}
+                                onChange={(e) => setManualDraft((d) => ({ ...d, load1_from: e.target.value }))}
+                                placeholder="ex. 5"
+                              />
+                              {okType === "presiometry_program_a" ? (
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="icon"
+                                  className="size-9 shrink-0"
+                                  title="Alege index din grafic (tab Grafice)"
+                                  disabled={busy}
+                                  onClick={() => setChartPick("load1_from")}
+                                >
+                                  <Crosshair className="size-3.5" />
+                                </Button>
+                              ) : null}
+                            </div>
                           </div>
                           <div>
                             <Label className="text-xs">Încărcare 1 (to)</Label>
-                            <Input
-                              value={manualDraft.load1_to}
-                              onChange={(e) => setManualDraft((d) => ({ ...d, load1_to: e.target.value }))}
-                              placeholder="ex. 25"
-                            />
+                            <div className="flex gap-1">
+                              <Input
+                                className="min-w-0 flex-1"
+                                value={manualDraft.load1_to}
+                                onChange={(e) => setManualDraft((d) => ({ ...d, load1_to: e.target.value }))}
+                                placeholder="ex. 25"
+                              />
+                              {okType === "presiometry_program_a" ? (
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="icon"
+                                  className="size-9 shrink-0"
+                                  title="Alege index din grafic (tab Grafice)"
+                                  disabled={busy}
+                                  onClick={() => setChartPick("load1_to")}
+                                >
+                                  <Crosshair className="size-3.5" />
+                                </Button>
+                              ) : null}
+                            </div>
                           </div>
                         </div>
 
@@ -818,56 +1185,112 @@ export function TestWorkspace({
                                 <TableRow key={i}>
                                   <TableCell className="text-xs text-muted-foreground">{i + 1}</TableCell>
                                   <TableCell>
-                                    <Input
-                                      value={row.unload_from}
-                                      onChange={(e) =>
-                                        setManualDraft((d) => ({
-                                          ...d,
-                                          loops: d.loops.map((x, j) =>
-                                            j === i ? { ...x, unload_from: e.target.value } : x,
-                                          ),
-                                        }))
-                                      }
-                                      placeholder="ex. 30"
-                                    />
+                                    <div className="flex gap-1">
+                                      <Input
+                                        className="min-w-0 flex-1"
+                                        value={row.unload_from}
+                                        onChange={(e) =>
+                                          setManualDraft((d) => ({
+                                            ...d,
+                                            loops: d.loops.map((x, j) =>
+                                              j === i ? { ...x, unload_from: e.target.value } : x,
+                                            ),
+                                          }))
+                                        }
+                                        placeholder="ex. 30"
+                                      />
+                                      <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="icon"
+                                        className="size-9 shrink-0"
+                                        title="Alege index din grafic (tab Grafice)"
+                                        disabled={busy}
+                                        onClick={() => setChartPick({ k: "unload_from", loop: i })}
+                                      >
+                                        <Crosshair className="size-3.5" />
+                                      </Button>
+                                    </div>
                                   </TableCell>
                                   <TableCell>
-                                    <Input
-                                      value={row.unload_to}
-                                      onChange={(e) =>
-                                        setManualDraft((d) => ({
-                                          ...d,
-                                          loops: d.loops.map((x, j) => (j === i ? { ...x, unload_to: e.target.value } : x)),
-                                        }))
-                                      }
-                                      placeholder="ex. 55"
-                                    />
+                                    <div className="flex gap-1">
+                                      <Input
+                                        className="min-w-0 flex-1"
+                                        value={row.unload_to}
+                                        onChange={(e) =>
+                                          setManualDraft((d) => ({
+                                            ...d,
+                                            loops: d.loops.map((x, j) => (j === i ? { ...x, unload_to: e.target.value } : x)),
+                                          }))
+                                        }
+                                        placeholder="ex. 55"
+                                      />
+                                      <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="icon"
+                                        className="size-9 shrink-0"
+                                        title="Alege index din grafic (tab Grafice)"
+                                        disabled={busy}
+                                        onClick={() => setChartPick({ k: "unload_to", loop: i })}
+                                      >
+                                        <Crosshair className="size-3.5" />
+                                      </Button>
+                                    </div>
                                   </TableCell>
                                   <TableCell>
-                                    <Input
-                                      value={row.reload_from}
-                                      onChange={(e) =>
-                                        setManualDraft((d) => ({
-                                          ...d,
-                                          loops: d.loops.map((x, j) =>
-                                            j === i ? { ...x, reload_from: e.target.value } : x,
-                                          ),
-                                        }))
-                                      }
-                                      placeholder="ex. 56"
-                                    />
+                                    <div className="flex gap-1">
+                                      <Input
+                                        className="min-w-0 flex-1"
+                                        value={row.reload_from}
+                                        onChange={(e) =>
+                                          setManualDraft((d) => ({
+                                            ...d,
+                                            loops: d.loops.map((x, j) =>
+                                              j === i ? { ...x, reload_from: e.target.value } : x,
+                                            ),
+                                          }))
+                                        }
+                                        placeholder="ex. 56"
+                                      />
+                                      <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="icon"
+                                        className="size-9 shrink-0"
+                                        title="Alege index din grafic (tab Grafice)"
+                                        disabled={busy}
+                                        onClick={() => setChartPick({ k: "reload_from", loop: i })}
+                                      >
+                                        <Crosshair className="size-3.5" />
+                                      </Button>
+                                    </div>
                                   </TableCell>
                                   <TableCell>
-                                    <Input
-                                      value={row.reload_to}
-                                      onChange={(e) =>
-                                        setManualDraft((d) => ({
-                                          ...d,
-                                          loops: d.loops.map((x, j) => (j === i ? { ...x, reload_to: e.target.value } : x)),
-                                        }))
-                                      }
-                                      placeholder="ex. 80"
-                                    />
+                                    <div className="flex gap-1">
+                                      <Input
+                                        className="min-w-0 flex-1"
+                                        value={row.reload_to}
+                                        onChange={(e) =>
+                                          setManualDraft((d) => ({
+                                            ...d,
+                                            loops: d.loops.map((x, j) => (j === i ? { ...x, reload_to: e.target.value } : x)),
+                                          }))
+                                        }
+                                        placeholder="ex. 80"
+                                      />
+                                      <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="icon"
+                                        className="size-9 shrink-0"
+                                        title="Alege index din grafic (tab Grafice)"
+                                        disabled={busy}
+                                        onClick={() => setChartPick({ k: "reload_to", loop: i })}
+                                      >
+                                        <Crosshair className="size-3.5" />
+                                      </Button>
+                                    </div>
                                   </TableCell>
                                 </TableRow>
                               ))}

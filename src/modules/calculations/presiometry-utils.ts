@@ -148,6 +148,33 @@ export function pickPointsInPressureWindow(
   return { xsV, ysP };
 }
 
+/** Ca `pickPointsInPressureWindow`, plus primul/ultimul index din serie incluși în fereastră (pentru UI). */
+export function pickPointsInPressureWindowWithIndices(
+  pts: PVPoint[],
+  fromInclusive: number,
+  toInclusive: number,
+  pLow: number,
+  pHigh: number,
+): { xsV: number[]; ysP: number[]; indexFrom: number | null; indexTo: number | null } {
+  const xsV: number[] = [];
+  const ysP: number[] = [];
+  let indexFrom: number | null = null;
+  let indexTo: number | null = null;
+  const lo = Math.min(pLow, pHigh);
+  const hi = Math.max(pLow, pHigh);
+  for (let i = fromInclusive; i <= toInclusive && i < pts.length; i++) {
+    const p = pts[i]!.p_kpa;
+    const v = pts[i]!.x;
+    if (!Number.isFinite(p) || !Number.isFinite(v)) continue;
+    if (p < lo || p > hi) continue;
+    if (indexFrom == null) indexFrom = i;
+    indexTo = i;
+    xsV.push(v);
+    ysP.push(p);
+  }
+  return { xsV, ysP, indexFrom, indexTo };
+}
+
 export function xAxisLabel(kind: PresiometryXKind): { label: string; unit: string; keySuffix: string } {
   return kind === "radius_mm"
     ? { label: "R", unit: "mm", keySuffix: "kpa_per_mm" }
