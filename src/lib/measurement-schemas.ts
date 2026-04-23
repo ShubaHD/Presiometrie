@@ -1,4 +1,5 @@
 import type { TestType } from "@/types/lab";
+import { PMT_PROBE_DIAMETER_MM, PMT_SEATING_R_MM_DEFAULT } from "@/lib/presiometry-defaults";
 import { z } from "zod";
 
 function optionalNumber(label: string, opts?: { min?: number; max?: number }) {
@@ -16,7 +17,7 @@ const presiometrySchema = z.object({
   }, z.string().max(120).optional()),
   pmt_depth_m: optionalNumber("Adâncime", { min: 0 }),
   pmt_packer_diameter_mm: optionalNumber("Diametru packer", { min: 0 }),
-  pmt_seating_r_mm: optionalNumber("R așezare", { min: 0 }),
+  pmt_seating_r_mm: optionalNumber(`R așezare (mm, tub Ø${PMT_PROBE_DIAMETER_MM} → ${PMT_SEATING_R_MM_DEFAULT})`, { min: 0 }),
   pmt_borehole_diameter_mm: optionalNumber("Diametru gaură", { min: 0 }),
   pmt_probe_diameter_mm: optionalNumber("Diametru sondă", { min: 0 }),
   pmt_initial_volume_cm3: optionalNumber("Volum inițial", { min: 0 }),

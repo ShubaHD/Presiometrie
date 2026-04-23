@@ -11,12 +11,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { jsonLabHeaders, labUserFetchHeaders } from "@/lib/lab-client-user";
 import { MEASUREMENT_PRESETS } from "@/lib/measurement-presets";
+import { PMT_PROBE_DIAMETER_MM, PMT_SEATING_R_MM_DEFAULT } from "@/lib/presiometry-defaults";
 import { parsePresiometryCurvePayload } from "@/lib/presiometry-curve";
 import { validateMeasurementsForTestType } from "@/lib/measurement-schemas";
 import { newTestOptionLabel } from "@/lib/test-type-options";
 import type { TestMeasurement, TestResult, TestRow, TestType } from "@/types/lab";
-import { Crosshair, Loader2 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Crosshair, Hand, Loader2, MousePointer2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { TransformComponent, TransformWrapper } from "react-zoom-pan-pinch";
 import { useForm } from "react-hook-form";
 import { LabBreadcrumb } from "./lab-breadcrumb";
 import {
@@ -82,6 +84,83 @@ function axisDomainPadded(values: number[], padRatio = 0.06): [number, number] |
 }
 
 /** Ticks X pentru R (mm): valori pare din 2 în 2, acoperind domeniul afișat. */
+type ChartNavMode = "hand" | "cursor";
+
+function PresiometryChartZoomShell({
+  navMode,
+  onNavModeChange,
+  disableTransform,
+  children,
+}: {
+  navMode: ChartNavMode;
+  onNavModeChange: (m: ChartNavMode) => void;
+  disableTransform: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <TransformWrapper
+      disabled={disableTransform}
+      minScale={0.35}
+      maxScale={10}
+      limitToBounds={false}
+      centerOnInit
+      panning={{
+        disabled: disableTransform || navMode !== "hand",
+        allowLeftClickPan: true,
+      }}
+      wheel={{ step: 0.12, disabled: disableTransform }}
+      pinch={{ disabled: disableTransform }}
+      doubleClick={{ disabled: true }}
+    >
+      {(ctx) => (
+        <div className="w-full">
+          <div className="mb-1 flex flex-wrap items-center justify-end gap-1">
+            <Button
+              type="button"
+              variant={navMode === "hand" ? "default" : "outline"}
+              size="sm"
+              className="h-7 gap-1 px-2 text-xs"
+              title="Mână: trageți pentru panoramare; rotița = zoom"
+              onClick={() => onNavModeChange("hand")}
+            >
+              <Hand className="size-3.5" />
+              Mână
+            </Button>
+            <Button
+              type="button"
+              variant={navMode === "cursor" ? "default" : "outline"}
+              size="sm"
+              className="h-7 gap-1 px-2 text-xs"
+              title="Cursor: fără panoramare la drag"
+              onClick={() => onNavModeChange("cursor")}
+            >
+              <MousePointer2 className="size-3.5" />
+              Cursor
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 text-xs"
+              disabled={disableTransform}
+              onClick={() => void ctx.resetTransform()}
+            >
+              Reset zoom
+            </Button>
+          </div>
+          <TransformComponent
+            wrapperClass="w-full max-w-full overflow-hidden rounded-md border border-border/80 bg-background"
+            wrapperStyle={{ height: 280, touchAction: disableTransform ? undefined : "none" }}
+            contentStyle={{ width: "100%", height: 280 }}
+          >
+            <div className="h-[280px] w-full">{children}</div>
+          </TransformComponent>
+        </div>
+      )}
+    </TransformWrapper>
+  );
+}
+
 function xTicksEvery2Mm(domain: [number, number] | undefined, dataLo: number, dataHi: number): number[] {
   const lo = domain ? Math.min(domain[0], domain[1]) : Math.min(dataLo, dataHi);
   const hi = domain ? Math.max(domain[0], domain[1]) : Math.max(dataLo, dataHi);
@@ -217,7 +296,7 @@ export function TestWorkspace({
         : typeof raw === "number"
           ? raw
           : Number(String(raw).replace(",", "."));
-    return Number.isFinite(n) && n > 0 ? n : 38;
+    return Number.isFinite(n) && n > 0 ? n : PMT_SEATING_R_MM_DEFAULT;
   }, [byKey]);
 
   const chartSeries = useMemo(() => {
@@ -405,6 +484,11 @@ export function TestWorkspace({
     | { k: "reload_to"; loop: number };
 
   const [chartPick, setChartPick] = useState<ChartPickTarget>(null);
+  const [chartNavPr, setChartNavPr] = useState<ChartNavMode>("cursor");
+  const [chartNavPdr, setChartNavPdr] = useState<ChartNavMode>("cursor");
+
+  const showRegressionOverlays =
+    manualDraft.mode === "auto" && (okType === "presiometry_program_a" || okType === "presiometry_program_b");
 
   const applyChartPickIndex = useCallback(
     (idx: number) => {
@@ -534,7 +618,7 @@ export function TestWorkspace({
           ? current
           : Number(String(current).replace(",", "."));
     if (n == null || !Number.isFinite(n) || n <= 0) {
-      form.setValue("pmt_seating_r_mm", 38);
+      form.setValue("pmt_seating_r_mm", PMT_SEATING_R_MM_DEFAULT);
     }
   }, [okType, presetRows, form]);
 
@@ -827,7 +911,7 @@ export function TestWorkspace({
               <CardDescription className="space-y-1 text-xs">
                 <span>
                   {xKind === "radius_mm"
-                    ? "p–R (raw) și p–δ (δ = deplasare radială corectată față de R la așezare; ajustați «R așezare» la măsurători)."
+                    ? `p–R (raw) și p–δ: δ = R − R așezare. Pentru sondă Ø${PMT_PROBE_DIAMETER_MM} mm, așezarea este la R = ${PMT_SEATING_R_MM_DEFAULT} mm (R = Ø/2); puteți suprascrie în «R la așezare» din măsurători.`
                     : "p–V și p–ΔV (Δ față de primul punct)."}
                 </span>
                 {(okType === "presiometry_program_a" || okType === "presiometry_program_b") && (
@@ -849,7 +933,7 @@ export function TestWorkspace({
                 <>
                   {chartPick ? (
                     <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-950 dark:text-amber-100">
-                      În tab-ul <strong>Grafice</strong>, click pe un punct al curbei <strong>p–{xKind === "radius_mm" ? "R" : "V"}</strong>{" "}
+                      Faceți click pe un punct al diagramei <strong>p–{xKind === "radius_mm" ? "R" : "V"}</strong> de mai sus
                       pentru a seta{" "}
                       {chartPick === "load1_from" && "«Încărcare 1 (from)»"}
                       {chartPick === "load1_to" && "«Încărcare 1 (to)»"}
@@ -879,127 +963,133 @@ export function TestWorkspace({
                       </Button>
                     </div>
                   ) : null}
-                  <div className="w-full" style={{ minHeight: 320 }}>
-                    <p className="text-muted-foreground mb-2 text-xs">Curba p–{xKind === "radius_mm" ? "R" : "V"}</p>
-                    <ResponsiveContainer width="100%" height={280}>
-                      <LineChart data={chartSeries.pr} margin={{ top: 8, right: 12, left: 8, bottom: 8 }}>
-                        <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                        <XAxis
-                          type="number"
-                          dataKey="x"
-                          domain={chartSeries.prXDomain ?? ["auto", "auto"]}
-                          ticks={
-                            xKind === "radius_mm" && prXAxisRadiusTicks?.length ? prXAxisRadiusTicks : undefined
-                          }
-                          tickFormatter={(v) =>
-                            xKind === "radius_mm"
-                              ? String(Math.round(typeof v === "number" ? v : Number(v)))
-                              : String(typeof v === "number" ? v : Number(v))
-                          }
-                          tick={{ fontSize: 11 }}
-                          label={{ value: xLabel, position: "bottom", offset: 0, style: { fontSize: 11 } }}
-                        />
-                        <YAxis
-                          type="number"
-                          dataKey="p_kpa"
-                          tick={{ fontSize: 11 }}
-                          label={{ value: "p (kPa)", angle: -90, position: "insideLeft", style: { fontSize: 11 } }}
-                        />
-                        <Tooltip
-                          formatter={(v) => {
-                            const n = typeof v === "number" ? v : Number(v);
-                            return [Number.isFinite(n) ? String(Math.round(n * 100) / 100) : "—", ""];
-                          }}
-                          labelFormatter={() => ""}
-                          contentStyle={{ borderRadius: 8, fontSize: 12 }}
-                        />
-                        <Legend wrapperStyle={{ fontSize: 12 }} />
-                        {(okType === "presiometry_program_a" || okType === "presiometry_program_b") &&
-                          presiometryViz.areasPr.map((a) => (
-                            <ReferenceArea
-                              key={a.key}
-                              x1={a.x1}
-                              x2={a.x2}
-                              strokeOpacity={0}
-                              fill={a.fill}
-                              ifOverflow="visible"
-                            />
-                          ))}
-                        <Line
-                          type="monotone"
-                          dataKey="p_kpa"
-                          stroke="oklch(0.45 0.14 250)"
-                          name="p"
-                          dot={lineDotForPicking || false}
-                          isAnimationActive={false}
-                        />
-                        {(okType === "presiometry_program_a" || okType === "presiometry_program_b") &&
-                          presiometryViz.tangentsPr.map((t) => (
-                            <ReferenceLine
-                              key={t.key}
-                              segment={[
-                                { x: t.pts[0]!.x, y: t.pts[0]!.p_kpa },
-                                { x: t.pts[1]!.x, y: t.pts[1]!.p_kpa },
-                              ]}
-                              stroke={t.stroke}
-                              strokeWidth={2}
-                              strokeDasharray="6 4"
-                              ifOverflow="extendDomain"
-                              label={{
-                                value: t.label,
-                                position: "middle",
-                                fill: t.stroke,
-                                fontSize: 10,
-                                fontWeight: 600,
-                              }}
-                            />
-                          ))}
-                        {(okType === "presiometry_program_a" || okType === "presiometry_program_b") &&
-                          chartSeries.w3070?.p30 != null &&
-                          chartSeries.w3070?.p70 != null && (
-                            <>
-                              <ReferenceLine
-                                y={chartSeries.w3070.p30}
-                                stroke="oklch(0.65 0.15 90)"
-                                strokeDasharray="4 4"
-                                ifOverflow="extendDomain"
+                  <div className="w-full space-y-1">
+                    <p className="text-muted-foreground text-xs">Curba p–{xKind === "radius_mm" ? "R" : "V"}</p>
+                    <PresiometryChartZoomShell
+                      navMode={chartNavPr}
+                      onNavModeChange={setChartNavPr}
+                      disableTransform={chartPick != null}
+                    >
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={chartSeries.pr} margin={{ top: 8, right: 12, left: 8, bottom: 8 }}>
+                          <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                          <XAxis
+                            type="number"
+                            dataKey="x"
+                            domain={chartSeries.prXDomain ?? ["auto", "auto"]}
+                            ticks={
+                              xKind === "radius_mm" && prXAxisRadiusTicks?.length ? prXAxisRadiusTicks : undefined
+                            }
+                            tickFormatter={(v) =>
+                              xKind === "radius_mm"
+                                ? String(Math.round(typeof v === "number" ? v : Number(v)))
+                                : String(typeof v === "number" ? v : Number(v))
+                            }
+                            tick={{ fontSize: 11 }}
+                            label={{ value: xLabel, position: "bottom", offset: 0, style: { fontSize: 11 } }}
+                          />
+                          <YAxis
+                            type="number"
+                            dataKey="p_kpa"
+                            tick={{ fontSize: 11 }}
+                            label={{ value: "p (kPa)", angle: -90, position: "insideLeft", style: { fontSize: 11 } }}
+                          />
+                          <Tooltip
+                            formatter={(v) => {
+                              const n = typeof v === "number" ? v : Number(v);
+                              return [Number.isFinite(n) ? String(Math.round(n * 100) / 100) : "—", ""];
+                            }}
+                            labelFormatter={() => ""}
+                            contentStyle={{ borderRadius: 8, fontSize: 12 }}
+                          />
+                          <Legend wrapperStyle={{ fontSize: 12 }} />
+                          {showRegressionOverlays &&
+                            presiometryViz.areasPr.map((a) => (
+                              <ReferenceArea
+                                key={a.key}
+                                x1={a.x1}
+                                x2={a.x2}
+                                strokeOpacity={0}
+                                fill={a.fill}
+                                ifOverflow="visible"
                               />
+                            ))}
+                          <Line
+                            type="monotone"
+                            dataKey="p_kpa"
+                            stroke="oklch(0.45 0.14 250)"
+                            name="p"
+                            dot={lineDotForPicking || false}
+                            isAnimationActive={false}
+                          />
+                          {showRegressionOverlays &&
+                            presiometryViz.tangentsPr.map((t) => (
                               <ReferenceLine
-                                y={chartSeries.w3070.p70}
-                                stroke="oklch(0.65 0.15 90)"
-                                strokeDasharray="4 4"
+                                key={t.key}
+                                segment={[
+                                  { x: t.pts[0]!.x, y: t.pts[0]!.p_kpa },
+                                  { x: t.pts[1]!.x, y: t.pts[1]!.p_kpa },
+                                ]}
+                                stroke={t.stroke}
+                                strokeWidth={2}
+                                strokeDasharray="6 4"
                                 ifOverflow="extendDomain"
+                                label={{
+                                  value: t.label,
+                                  position: "middle",
+                                  fill: t.stroke,
+                                  fontSize: 10,
+                                  fontWeight: 600,
+                                }}
                               />
-                            </>
-                          )}
-                        {(okType === "presiometry_program_a" || okType === "presiometry_program_b") &&
-                          chartSeries.loops.slice(0, 6).flatMap((w, idx) => {
-                            const peak = chartSeries.pr[w.peakIndex];
-                            const valley = chartSeries.pr[w.valleyIndex];
-                            if (!peak || !valley) return [];
-                            return [
-                              <ReferenceDot
-                                key={`peak-${idx}`}
-                                x={peak.x}
-                                y={peak.p_kpa}
-                                r={4}
-                                fill="oklch(0.55 0.18 30)"
-                                stroke="none"
-                              />,
-                              <ReferenceDot
-                                key={`valley-${idx}`}
-                                x={valley.x}
-                                y={valley.p_kpa}
-                                r={4}
-                                fill="oklch(0.6 0.16 140)"
-                                stroke="none"
-                              />,
-                            ];
-                          })}
-                      </LineChart>
-                    </ResponsiveContainer>
-                    {(okType === "presiometry_program_a" || okType === "presiometry_program_b") ? (
-                      <p className="text-muted-foreground mt-1 text-[10px]">
+                            ))}
+                          {showRegressionOverlays &&
+                            chartSeries.w3070?.p30 != null &&
+                            chartSeries.w3070?.p70 != null && (
+                              <>
+                                <ReferenceLine
+                                  y={chartSeries.w3070.p30}
+                                  stroke="oklch(0.65 0.15 90)"
+                                  strokeDasharray="4 4"
+                                  ifOverflow="extendDomain"
+                                />
+                                <ReferenceLine
+                                  y={chartSeries.w3070.p70}
+                                  stroke="oklch(0.65 0.15 90)"
+                                  strokeDasharray="4 4"
+                                  ifOverflow="extendDomain"
+                                />
+                              </>
+                            )}
+                          {showRegressionOverlays &&
+                            chartSeries.loops.slice(0, 6).flatMap((w, idx) => {
+                              const peak = chartSeries.pr[w.peakIndex];
+                              const valley = chartSeries.pr[w.valleyIndex];
+                              if (!peak || !valley) return [];
+                              return [
+                                <ReferenceDot
+                                  key={`peak-${idx}`}
+                                  x={peak.x}
+                                  y={peak.p_kpa}
+                                  r={4}
+                                  fill="oklch(0.55 0.18 30)"
+                                  stroke="none"
+                                />,
+                                <ReferenceDot
+                                  key={`valley-${idx}`}
+                                  x={valley.x}
+                                  y={valley.p_kpa}
+                                  r={4}
+                                  fill="oklch(0.6 0.16 140)"
+                                  stroke="none"
+                                />,
+                              ];
+                            })}
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </PresiometryChartZoomShell>
+                    {showRegressionOverlays ? (
+                      <p className="text-muted-foreground text-[10px]">
                         Marcaje: portocaliu = vârf buclă, verde = minim buclă (auto). Portocaliu deschis = praguri 30% /
                         70% din domeniul p. Benzi colorate = intervale regresie; linii colorate punctat = tangente{" "}
                         <span className="font-medium">G</span>.
@@ -1007,107 +1097,101 @@ export function TestWorkspace({
                     ) : null}
                   </div>
 
-                  <div className="w-full" style={{ minHeight: 320 }}>
-                    <p className="text-muted-foreground mb-2 text-xs">
+                  <div className="w-full space-y-1">
+                    <p className="text-muted-foreground text-xs">
                       Curba p–{xKind === "radius_mm" ? "δ" : "ΔV"} ({xLabelDelta})
                     </p>
-                    <ResponsiveContainer width="100%" height={280}>
-                      <LineChart data={chartSeries.pdr} margin={{ top: 8, right: 12, left: 8, bottom: 8 }}>
-                        <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                        <XAxis
-                          type="number"
-                          dataKey="x"
-                          domain={chartSeries.pdrXDomain ?? ["auto", "auto"]}
-                          tick={{ fontSize: 11 }}
-                          label={{
-                            value: xLabelDelta,
-                            position: "bottom",
-                            offset: 0,
-                            style: { fontSize: 11 },
-                          }}
-                        />
-                        <YAxis
-                          type="number"
-                          dataKey="p_kpa"
-                          tick={{ fontSize: 11 }}
-                          label={{ value: "p (kPa)", angle: -90, position: "insideLeft", style: { fontSize: 11 } }}
-                        />
-                        <Tooltip
-                          formatter={(v) => {
-                            const n = typeof v === "number" ? v : Number(v);
-                            return [Number.isFinite(n) ? String(Math.round(n * 100) / 100) : "—", ""];
-                          }}
-                          labelFormatter={() => ""}
-                          contentStyle={{ borderRadius: 8, fontSize: 12 }}
-                        />
-                        <Legend wrapperStyle={{ fontSize: 12 }} />
-                        {(okType === "presiometry_program_a" || okType === "presiometry_program_b") &&
-                          presiometryViz.areasPdr.map((a) => (
-                            <ReferenceArea
-                              key={a.key}
-                              x1={a.x1}
-                              x2={a.x2}
-                              strokeOpacity={0}
-                              fill={a.fill}
-                              ifOverflow="visible"
-                            />
-                          ))}
-                        <Line
-                          type="monotone"
-                          dataKey="p_kpa"
-                          stroke="oklch(0.5 0.12 150)"
-                          name="p"
-                          dot={false}
-                          isAnimationActive={false}
-                        />
-                        {(okType === "presiometry_program_a" || okType === "presiometry_program_b") &&
-                          presiometryViz.tangentsPdr.map((t) => (
-                            <ReferenceLine
-                              key={t.key}
-                              segment={[
-                                { x: t.pts[0]!.x, y: t.pts[0]!.p_kpa },
-                                { x: t.pts[1]!.x, y: t.pts[1]!.p_kpa },
-                              ]}
-                              stroke={t.stroke}
-                              strokeWidth={2}
-                              strokeDasharray="6 4"
-                              ifOverflow="extendDomain"
-                              label={{
-                                value: t.label,
-                                position: "middle",
-                                fill: t.stroke,
-                                fontSize: 10,
-                                fontWeight: 600,
-                              }}
-                            />
-                          ))}
-                      </LineChart>
-                    </ResponsiveContainer>
+                    <PresiometryChartZoomShell
+                      navMode={chartNavPdr}
+                      onNavModeChange={setChartNavPdr}
+                      disableTransform={false}
+                    >
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={chartSeries.pdr} margin={{ top: 8, right: 12, left: 8, bottom: 8 }}>
+                          <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                          <XAxis
+                            type="number"
+                            dataKey="x"
+                            domain={chartSeries.pdrXDomain ?? ["auto", "auto"]}
+                            tick={{ fontSize: 11 }}
+                            label={{
+                              value: xLabelDelta,
+                              position: "bottom",
+                              offset: 0,
+                              style: { fontSize: 11 },
+                            }}
+                          />
+                          <YAxis
+                            type="number"
+                            dataKey="p_kpa"
+                            tick={{ fontSize: 11 }}
+                            label={{ value: "p (kPa)", angle: -90, position: "insideLeft", style: { fontSize: 11 } }}
+                          />
+                          <Tooltip
+                            formatter={(v) => {
+                              const n = typeof v === "number" ? v : Number(v);
+                              return [Number.isFinite(n) ? String(Math.round(n * 100) / 100) : "—", ""];
+                            }}
+                            labelFormatter={() => ""}
+                            contentStyle={{ borderRadius: 8, fontSize: 12 }}
+                          />
+                          <Legend wrapperStyle={{ fontSize: 12 }} />
+                          {showRegressionOverlays &&
+                            presiometryViz.areasPdr.map((a) => (
+                              <ReferenceArea
+                                key={a.key}
+                                x1={a.x1}
+                                x2={a.x2}
+                                strokeOpacity={0}
+                                fill={a.fill}
+                                ifOverflow="visible"
+                              />
+                            ))}
+                          <Line
+                            type="monotone"
+                            dataKey="p_kpa"
+                            stroke="oklch(0.5 0.12 150)"
+                            name="p"
+                            dot={false}
+                            isAnimationActive={false}
+                          />
+                          {showRegressionOverlays &&
+                            presiometryViz.tangentsPdr.map((t) => (
+                              <ReferenceLine
+                                key={t.key}
+                                segment={[
+                                  { x: t.pts[0]!.x, y: t.pts[0]!.p_kpa },
+                                  { x: t.pts[1]!.x, y: t.pts[1]!.p_kpa },
+                                ]}
+                                stroke={t.stroke}
+                                strokeWidth={2}
+                                strokeDasharray="6 4"
+                                ifOverflow="extendDomain"
+                                label={{
+                                  value: t.label,
+                                  position: "middle",
+                                  fill: t.stroke,
+                                  fontSize: 10,
+                                  fontWeight: 600,
+                                }}
+                              />
+                            ))}
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </PresiometryChartZoomShell>
                   </div>
                 </>
               )}
-            </CardContent>
-          </Card>
-        </TabsContent>
 
-        <TabsContent value="calc" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Calcule</CardTitle>
-              <CardDescription>
-                {okType === "presiometry_program_c"
-                  ? "Program C (creep): în această versiune avem import + structură. Calculele de creep vor fi adăugate ulterior."
-                  : "Program A/B: moduluri pe ferestre 30–70% (detecție bucle auto)."}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
               {okType !== "presiometry_program_c" ? (
                 <Card className="bg-muted/30">
                   <CardHeader>
                     <CardTitle className="text-sm">Selecții calcul (auto / manual)</CardTitle>
                     <CardDescription className="text-xs">
-                      Dacă buclele nu sunt perfecte, setați intervalele (index 0…N-1) sau folosiți «De pe grafic» →
-                      mergeți la tab-ul «Grafice» și click pe curbă.
+                      Dacă buclele nu sunt perfecte, setați intervalele (index 0…N-1) sau folosiți butoanele{" "}
+                      <Crosshair className="inline size-3 align-text-bottom" /> apoi faceți click pe diagrama{" "}
+                      <strong>p–{xKind === "radius_mm" ? "R" : "V"}</strong>
+                      {curve?.points?.length ? " de mai sus." : " (după import serie în acest tab)."}
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-3">
@@ -1138,9 +1222,17 @@ export function TestWorkspace({
                       </span>
                     </div>
 
-                    {chartPick ? (
+                    {chartPick && curve?.points?.length ? (
                       <p className="text-xs text-amber-800 dark:text-amber-200">
-                        Mergeți la tab-ul «Grafice» și faceți click pe curbă (p–{xKind === "radius_mm" ? "R" : "V"}).
+                        Faceți click pe diagrama <strong>p–{xKind === "radius_mm" ? "R" : "V"}</strong> de mai sus.
+                      </p>
+                    ) : chartPick && !curve?.points?.length ? (
+                      <p className="text-xs text-amber-800 dark:text-amber-200">
+                        Importați seria în acest tab sau din tab-ul «Serie» pentru a alege punctul pe curbă, sau{" "}
+                        <Button type="button" variant="link" className="h-auto p-0 text-xs" onClick={() => setChartPick(null)}>
+                          anulați
+                        </Button>
+                        .
                       </p>
                     ) : null}
 
@@ -1162,7 +1254,7 @@ export function TestWorkspace({
                                   variant="outline"
                                   size="icon"
                                   className="size-9 shrink-0"
-                                  title="Alege index din grafic (tab Grafice)"
+                                  title="Alege punct pe graficul p–R de mai sus"
                                   disabled={busy}
                                   onClick={() => setChartPick("load1_from")}
                                 >
@@ -1186,7 +1278,7 @@ export function TestWorkspace({
                                   variant="outline"
                                   size="icon"
                                   className="size-9 shrink-0"
-                                  title="Alege index din grafic (tab Grafice)"
+                                  title="Alege punct pe graficul p–R de mai sus"
                                   disabled={busy}
                                   onClick={() => setChartPick("load1_to")}
                                 >
@@ -1232,7 +1324,7 @@ export function TestWorkspace({
                                         variant="outline"
                                         size="icon"
                                         className="size-9 shrink-0"
-                                        title="Alege index din grafic (tab Grafice)"
+                                        title="Alege punct pe graficul p–R de mai sus"
                                         disabled={busy}
                                         onClick={() => setChartPick({ k: "unload_from", loop: i })}
                                       >
@@ -1258,7 +1350,7 @@ export function TestWorkspace({
                                         variant="outline"
                                         size="icon"
                                         className="size-9 shrink-0"
-                                        title="Alege index din grafic (tab Grafice)"
+                                        title="Alege punct pe graficul p–R de mai sus"
                                         disabled={busy}
                                         onClick={() => setChartPick({ k: "unload_to", loop: i })}
                                       >
@@ -1286,7 +1378,7 @@ export function TestWorkspace({
                                         variant="outline"
                                         size="icon"
                                         className="size-9 shrink-0"
-                                        title="Alege index din grafic (tab Grafice)"
+                                        title="Alege punct pe graficul p–R de mai sus"
                                         disabled={busy}
                                         onClick={() => setChartPick({ k: "reload_from", loop: i })}
                                       >
@@ -1312,7 +1404,7 @@ export function TestWorkspace({
                                         variant="outline"
                                         size="icon"
                                         className="size-9 shrink-0"
-                                        title="Alege index din grafic (tab Grafice)"
+                                        title="Alege punct pe graficul p–R de mai sus"
                                         disabled={busy}
                                         onClick={() => setChartPick({ k: "reload_to", loop: i })}
                                       >
@@ -1336,7 +1428,28 @@ export function TestWorkspace({
                   </CardContent>
                 </Card>
               ) : null}
+            </CardContent>
+          </Card>
+        </TabsContent>
 
+        <TabsContent value="calc" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Calcule</CardTitle>
+              <CardDescription className="space-y-1">
+                <span>
+                  {okType === "presiometry_program_c"
+                    ? "Program C (creep): în această versiune avem import + structură. Calculele de creep vor fi adăugate ulterior."
+                    : "Program A/B: moduluri pe ferestre 30–70% (detecție bucle auto)."}
+                </span>
+                {okType !== "presiometry_program_c" ? (
+                  <span className="text-muted-foreground block text-xs">
+                    Selecțiile auto / manual și alegerea punctelor pe curbă sunt în tab-ul <strong>Grafice</strong>.
+                  </span>
+                ) : null}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
               <Button type="button" disabled={busy} onClick={() => void runCalc()}>
                 {busy ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
                 Rulează calcule

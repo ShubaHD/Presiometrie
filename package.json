@@ -32,6 +32,7 @@
     "react-dom": "19.2.4",
     "react-hook-form": "^7.72.1",
     "react-resizable-panels": "^4.9.0",
+    "react-zoom-pan-pinch": "^3.7.0",
     "recharts": "^3.8.1",
     "shadcn": "^4.1.2",
     "tailwind-merge": "^3.5.0",

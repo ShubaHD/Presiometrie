@@ -3007,12 +3007,14 @@ export async function buildPresiometryPayload(
     .filter((p) => Number.isFinite(p.p_kpa) && Number.isFinite(p.x));
 
   const measRows = (measurements as Array<{ key: string; value: unknown }> | null | undefined) ?? [];
+  /** Aliniat la web `src/lib/presiometry-defaults.ts`: sondă Ø76 mm → R așezare 38 mm. */
+  const PMT_SEATING_R_MM_DEFAULT = 38;
   const seatingRMeas = measurementNumber(measRows, "pmt_seating_r_mm");
   const seatingR0 =
     xKind === "radius_mm"
       ? Number.isFinite(seatingRMeas) && seatingRMeas > 0
         ? seatingRMeas
-        : 38
+        : PMT_SEATING_R_MM_DEFAULT
       : curvePts.length
         ? curvePts[0]!.x
         : 0;
