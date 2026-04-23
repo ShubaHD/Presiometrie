@@ -15,7 +15,17 @@ export function toErrorMessage(e: unknown): string {
       return parts.join(" — ");
     }
   }
-  if (e instanceof Error) return e.message;
+  if (e instanceof Error) {
+    const parts = [e.message];
+    let c: unknown = e.cause;
+    let depth = 0;
+    while (c instanceof Error && depth < 4) {
+      if (c.message) parts.push(c.message);
+      c = c.cause;
+      depth += 1;
+    }
+    return parts.join(" — ");
+  }
   try {
     return JSON.stringify(e);
   } catch {

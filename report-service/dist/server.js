@@ -25,6 +25,29 @@ app.use((req, res, next) => {
     next();
 });
 app.use(express.json({ limit: "1mb" }));
+/** Trim + fără zero-width; `origin` pentru createClient (evită ENOTFOUND din spații în env). */
+function supabaseProjectUrlAndKey() {
+    const strip = (s) => s.trim().replace(/[\u200b-\u200d\ufeff]/g, "");
+    const rawUrl = strip(process.env.SUPABASE_URL ?? "");
+    const key = strip(process.env.SUPABASE_SERVICE_ROLE_KEY ?? "");
+    if (!rawUrl || !key) {
+        throw new Error("Configurați SUPABASE_URL și SUPABASE_SERVICE_ROLE_KEY.");
+    }
+    let url;
+    try {
+        const u = new URL(rawUrl);
+        if (u.protocol !== "https:") {
+            throw new Error("SUPABASE_URL trebuie să folosească https://.");
+        }
+        url = u.origin;
+    }
+    catch (e) {
+        if (e instanceof Error && e.message.startsWith("SUPABASE_URL"))
+            throw e;
+        throw new Error("SUPABASE_URL invalid în variabilele de mediu (Railway). Copiați Project URL din Supabase → Settings → API (https://….supabase.co), fără spații sau ghilimele.");
+    }
+    return { url, key };
+}
 function timingSafeEqualHex(a, b) {
     try {
         const ba = Buffer.from(a, "utf8");
@@ -99,11 +122,7 @@ function sanitizeStorageFileSegment(raw) {
     return out;
 }
 async function buildHtmlForTest(testId) {
-    const supabaseUrl = process.env.SUPABASE_URL;
-    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (!supabaseUrl || !supabaseKey) {
-        throw new Error("Configurați SUPABASE_URL și SUPABASE_SERVICE_ROLE_KEY.");
-    }
+    const { url: supabaseUrl, key: supabaseKey } = supabaseProjectUrlAndKey();
     const supabase = createClient(supabaseUrl, supabaseKey, {
         auth: { persistSession: false, autoRefreshToken: false },
     });
@@ -174,10 +193,15 @@ app.post("/reports", async (req, res) => {
         }
         if (!requireSecretOrToken(req, res, testId))
             return;
-        const supabaseUrl = process.env.SUPABASE_URL;
-        const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-        if (!supabaseUrl || !supabaseKey) {
-            res.status(503).json({ error: "Configurați SUPABASE_URL și SUPABASE_SERVICE_ROLE_KEY." });
+        let supabaseUrl;
+        let supabaseKey;
+        try {
+            const env = supabaseProjectUrlAndKey();
+            supabaseUrl = env.url;
+            supabaseKey = env.key;
+        }
+        catch (e) {
+            res.status(503).json({ error: toErrorMessage(e) });
             return;
         }
         const bucket = process.env.REPORTS_BUCKET?.trim() || "reports";
