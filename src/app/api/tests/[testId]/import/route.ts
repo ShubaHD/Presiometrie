@@ -85,7 +85,10 @@ export async function POST(req: Request, { params }: Params) {
     const name = file.name.toLowerCase();
     if (!(name.endsWith(".txt") || name.endsWith(".csv") || name.endsWith(".tsv"))) {
       return NextResponse.json(
-        { error: "Import presiometrie: folosiți TXT/CSV/TSV (p_kpa; v_cm3; opțional t_s)." },
+        {
+          error:
+            "Import presiometrie: folosiți TXT/CSV/TSV cu un header care conține presiunea (kPa/MPa/bar) și axa X (V în cm³ sau R/D în mm).",
+        },
         { status: 400 },
       );
     }
@@ -95,7 +98,10 @@ export async function POST(req: Request, { params }: Params) {
     const parsed = parsePresiometryDelimited(text);
     if (!parsed) {
       return NextResponse.json(
-        { error: "Nu am putut parsa seria. Aștept coloane: p_kpa, v_cm3 (și opțional t_s)." },
+        {
+          error:
+            "Nu am putut parsa seria. Verificați că există un rând de antet și cel puțin 2 puncte numerice. Format acceptat: p (kPa/MPa/bar) + V (cm³/ml/mm³) sau p + R/D (mm) pentru caliper; timp opțional.",
+        },
         { status: 400 },
       );
     }

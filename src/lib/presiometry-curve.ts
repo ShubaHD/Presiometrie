@@ -75,7 +75,9 @@ export function clampPresiometryCurveForStorage(payload: PresiometryCurvePayload
 
 export function parsePresiometryDelimited(text: string): PresiometryCurvePayload | null {
   const rawLines = text.split(/\r?\n/);
-  const lines = rawLines.map((l) => l.trim()).filter((l) => l.length > 0);
+  const lines = rawLines
+    .map((l) => l.replace(/^\uFEFF/, "").trim())
+    .filter((l) => l.length > 0);
   if (lines.length < 2) return null;
 
   const detectDelimiter = (line: string): string => {
@@ -101,12 +103,14 @@ export function parsePresiometryDelimited(text: string): PresiometryCurvePayload
   const looksLikeHeader = (cells: string[]) => {
     const joined = norm(cells.join(" "));
     const hasP =
-      joined.includes("p") &&
-      (joined.includes("kpa") ||
-        joined.includes("mpa") ||
-        joined.includes("bar") ||
-        joined.includes("pressure") ||
-        joined.includes("presi"));
+      (joined.includes("p") &&
+        (joined.includes("kpa") ||
+          joined.includes("mpa") ||
+          joined.includes("bar") ||
+          joined.includes("pressure") ||
+          joined.includes("presi"))) ||
+      joined.includes("stress") ||
+      joined.includes("pression");
     const hasV =
       joined.includes("v") &&
       (joined.includes("cm3") ||
@@ -115,16 +119,21 @@ export function parsePresiometryDelimited(text: string): PresiometryCurvePayload
         joined.includes("mm3") ||
         joined.includes("volume") ||
         joined.includes("volum"));
+    // Avoid false positives from words like "Pressure" containing "r".
     const hasR =
-      joined.includes("r") &&
-      (joined.includes("mm") ||
-        joined.includes("radius") ||
-        joined.includes("caliper") ||
-        joined.includes("dri") ||
-        joined.includes("delta r"));
+      joined.includes("radius") ||
+      joined.includes("caliper") ||
+      joined.includes("dri") ||
+      joined.includes("delta r") ||
+      /\br\s*mm\b/.test(joined) ||
+      joined.includes("r mm") ||
+      joined.includes("r[mm]");
     const hasD =
-      (joined.includes("d") || joined.includes("diam")) &&
-      (joined.includes("mm") || joined.includes("diameter") || joined.includes("diametru"));
+      joined.includes("diameter") ||
+      joined.includes("diametru") ||
+      /\bd\s*mm\b/.test(joined) ||
+      joined.includes("d mm") ||
+      joined.includes("d[mm]");
     return hasP && (hasV || hasR || hasD);
   };
 
@@ -183,7 +192,7 @@ export function parsePresiometryDelimited(text: string): PresiometryCurvePayload
   let headerIndex = -1;
   let delim = ";";
   let headerCells: string[] | null = null;
-  for (let i = 0; i < Math.min(lines.length, 25); i++) {
+  for (let i = 0; i < Math.min(lines.length, 200); i++) {
     const line = lines[i]!;
     if (line.startsWith("#") || line.startsWith("//")) continue;
     const d = detectDelimiter(line);
@@ -265,7 +274,7 @@ export function parsePresiometryDelimited(text: string): PresiometryCurvePayload
   for (let i = start; i < lines.length; i++) {
     const line = lines[i]!;
     if (line.startsWith("#") || line.startsWith("//")) continue;
-    const parts = (line.includes("\t") ? line.split("\t") : line.split(delim)).map((s) => s.trim());
+    const parts = line.split(delim).map((s) => s.trim());
     if (parts.length < 2) continue;
     const pRaw = parts[pIdx];
     const vRaw = parts[vIdx];
