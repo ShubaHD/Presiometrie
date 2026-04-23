@@ -1,7 +1,5 @@
-# Opțional: Railway detectează Dockerfile automat.
-# Setează Root Directory = report-service (sau monorepo: service path către acest folder).
-
-[deploy]
-healthcheckPath = "/health"
-healthcheckTimeout = 100
-restartPolicyType = "on_failure"
+# Railway: Root Directory = report-service → acest fișier forțează build Docker (Puppeteer + Chromium).
+# https://docs.railway.com/reference/config-as-code
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"

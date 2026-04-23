@@ -204,8 +204,8 @@ export function pickPointsInPressureWindowWithIndices(
 
 export function xAxisLabel(kind: PresiometryXKind): { label: string; unit: string; keySuffix: string } {
   return kind === "radius_mm"
-    ? { label: "R", unit: "mm", keySuffix: "kpa_per_mm" }
-    : { label: "V", unit: "cm³", keySuffix: "kpa_per_cm3" };
+    ? { label: "R", unit: "mm", keySuffix: "mpa_per_mm" }
+    : { label: "V", unit: "cm³", keySuffix: "mpa_per_cm3" };
 }
 
 export function pWindow3070(pMin: number, pMax: number): { p30: number; p70: number } | null {

@@ -220,10 +220,11 @@ function buildFirstLoadingSegmentProgramA(
   const p0 = pts[0]!.p_kpa;
   const pPk = pts[Math.min(firstPeak, pts.length - 1)]!.p_kpa;
   const wLoad = pWindow3070(p0, pPk);
-  if (manual?.mode === "manual" && manual.load1) {
+  if (manual?.mode === "manual") {
+    if (!manual.load1) return null;
     const arr = manualRangeArrays(pts, manual.load1.from, manual.load1.to);
     if (!arr) return null;
-    return segmentFromArrays("G_L1", "manual", arr.xsV, arr.ysP, arr.indexFrom, arr.indexTo);
+    return segmentFromArrays("GL1", "manual", arr.xsV, arr.ysP, arr.indexFrom, arr.indexTo);
   }
   if (!wLoad) return null;
   const picked = pickPointsInPressureWindowWithIndices(
@@ -233,7 +234,7 @@ function buildFirstLoadingSegmentProgramA(
     wLoad.p30,
     wLoad.p70,
   );
-  return segmentFromArrays("G_L1", "auto3070", picked.xsV, picked.ysP, picked.indexFrom, picked.indexTo);
+  return segmentFromArrays("GL1", "auto3070", picked.xsV, picked.ysP, picked.indexFrom, picked.indexTo);
 }
 
 function buildLoopUnloadReloadSegments(
@@ -245,38 +246,40 @@ function buildLoopUnloadReloadSegments(
   const peak = pts[loop.peakIndex]!;
   const valley = pts[loop.valleyIndex]!;
   const w = pWindow3070(valley.p_kpa, peak.p_kpa);
-  if (!w) return { unload: null, reload: null };
   const i = loopIndexZeroBased + 1;
   const manLoop = manual?.mode === "manual" ? manual.loops?.[loopIndexZeroBased] : undefined;
-  let un: { xsV: number[]; ysP: number[]; indexFrom: number | null; indexTo: number | null };
-  if (manual?.mode === "manual" && manLoop?.unload) {
+  const manualMode = manual?.mode === "manual";
+  const empty = { xsV: [] as number[], ysP: [] as number[], indexFrom: null as number | null, indexTo: null as number | null };
+  if (!manualMode && !w) return { unload: null, reload: null };
+  let un: typeof empty;
+  if (manualMode && manLoop?.unload) {
     const arr = manualRangeArrays(pts, manLoop.unload.from, manLoop.unload.to);
-    un = arr
-      ? { xsV: arr.xsV, ysP: arr.ysP, indexFrom: arr.indexFrom, indexTo: arr.indexTo }
-      : { xsV: [], ysP: [], indexFrom: null, indexTo: null };
+    un = arr ? { xsV: arr.xsV, ysP: arr.ysP, indexFrom: arr.indexFrom, indexTo: arr.indexTo } : empty;
+  } else if (manualMode) {
+    un = empty;
   } else {
-    un = pickPointsInPressureWindowWithIndices(pts, loop.peakIndex, loop.valleyIndex, w.p30, w.p70);
+    un = pickPointsInPressureWindowWithIndices(pts, loop.peakIndex, loop.valleyIndex, w!.p30, w!.p70);
   }
-  let re: { xsV: number[]; ysP: number[]; indexFrom: number | null; indexTo: number | null };
-  if (manual?.mode === "manual" && manLoop?.reload) {
+  let re: typeof empty;
+  if (manualMode && manLoop?.reload) {
     const arr = manualRangeArrays(pts, manLoop.reload.from, manLoop.reload.to);
-    re = arr
-      ? { xsV: arr.xsV, ysP: arr.ysP, indexFrom: arr.indexFrom, indexTo: arr.indexTo }
-      : { xsV: [], ysP: [], indexFrom: null, indexTo: null };
+    re = arr ? { xsV: arr.xsV, ysP: arr.ysP, indexFrom: arr.indexFrom, indexTo: arr.indexTo } : empty;
+  } else if (manualMode) {
+    re = empty;
   } else {
-    re = pickPointsInPressureWindowWithIndices(pts, loop.valleyIndex, loop.nextPeakIndex, w.p30, w.p70);
+    re = pickPointsInPressureWindowWithIndices(pts, loop.valleyIndex, loop.nextPeakIndex, w!.p30, w!.p70);
   }
   const unload = segmentFromArrays(
-    `G_U${i}`,
-    manual?.mode === "manual" && manLoop?.unload ? "manual" : "auto3070",
+    `GU${i}`,
+    manualMode && Boolean(manLoop?.unload) ? "manual" : "auto3070",
     un.xsV,
     un.ysP,
     un.indexFrom,
     un.indexTo,
   );
   const reload = segmentFromArrays(
-    `G_R${i}`,
-    manual?.mode === "manual" && manLoop?.reload ? "manual" : "auto3070",
+    `GR${i}`,
+    manualMode && Boolean(manLoop?.reload) ? "manual" : "auto3070",
     re.xsV,
     re.ysP,
     re.indexFrom,
@@ -293,7 +296,7 @@ function buildProgramBMidLoopGurSegmentPdf(
   loopIndexZeroBased: number,
 ): PresiometryRegressionSegment | null {
   const i = loopIndexZeroBased + 1;
-  const sym = `G_UR${i}`;
+  const sym = `GUR${i}`;
   const manLoop = manual?.mode === "manual" ? manual.loops?.[loopIndexZeroBased] : undefined;
   const loI = loop.peakIndex;
   const hiI = loop.nextPeakIndex;
@@ -324,6 +327,8 @@ function buildProgramBMidLoopGurSegmentPdf(
       }
     }
   }
+
+  if (manual?.mode === "manual") return null;
 
   const peak = pts[loop.peakIndex]!;
   const valley = pts[loop.valleyIndex]!;
@@ -553,8 +558,9 @@ export function buildPresiometryPdfOverlays(opts: {
     if (!e) return;
     const stroke = strokes[ti % strokes.length]!;
     ti++;
-    linesPr.push({ x1: e.x1, y1: e.p1, x2: e.x2, y2: e.p2, stroke, dash: "5 4" });
-    linesPdr.push({ x1: e.x1 - r0, y1: e.p1, x2: e.x2 - r0, y2: e.p2, stroke, dash: "5 4" });
+    const mpa = 1 / 1000;
+    linesPr.push({ x1: e.x1, y1: e.p1 * mpa, x2: e.x2, y2: e.p2 * mpa, stroke, dash: "5 4" });
+    linesPdr.push({ x1: e.x1 - r0, y1: e.p1 * mpa, x2: e.x2 - r0, y2: e.p2 * mpa, stroke, dash: "5 4" });
   };
 
   if (segs.load1) {

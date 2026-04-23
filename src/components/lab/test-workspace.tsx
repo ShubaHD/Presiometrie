@@ -45,6 +45,7 @@ import {
   buildProgramBRegressionSegments,
   tangentEndpointsRawX,
 } from "@/modules/calculations/presiometry-regression-segments";
+import { KPA_PER_MPA } from "@/modules/calculations/presiometry-mp";
 import { detectLoopsByPressure, extractPvPoints, pWindow3070 } from "@/modules/calculations/presiometry-utils";
 
 type ApiGet = {
@@ -291,8 +292,10 @@ export function TestWorkspace({
   const [measurements, setMeasurements] = useState<TestMeasurement[]>([]);
   const [results, setResults] = useState<TestResult[]>([]);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  /** `silent`: nu ascunde întreg ecranul (păstrează tab-ul activ); folosit după salvări / calcule. */
+  const load = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = opts?.silent === true;
+    if (!silent) setLoading(true);
     setErr(null);
     try {
       const res = await fetch(`/api/tests/${testId}`);
@@ -304,7 +307,7 @@ export function TestWorkspace({
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Eroare");
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [testId]);
 
@@ -343,28 +346,44 @@ export function TestWorkspace({
   }, [byKey]);
 
   const chartSeries = useMemo(() => {
+    type PrRow = { x: number; p_kpa: number; p_mpa: number; idx: number };
     const pvPts = extractPvPoints(curve);
     if (pvPts.length === 0)
       return {
-        pr: [] as Array<{ x: number; p_kpa: number; idx: number }>,
-        pdr: [] as Array<{ x: number; p_kpa: number; idx: number }>,
+        pr: [] as PrRow[],
+        pdr: [] as PrRow[],
         loops: [] as ReturnType<typeof detectLoopsByPressure>,
         w3070: null as null | { p30: number; p70: number },
+        w3070Mpa: null as null | { p30: number; p70: number },
         prXDomain: undefined as [number, number] | undefined,
         pdrXDomain: undefined as [number, number] | undefined,
         nPoints: 0,
         r0: 0,
       };
     const r0 = xKind === "radius_mm" ? seatingRmm : pvPts[0]!.x;
-    const pr = pvPts.map((p, idx) => ({ x: p.x, p_kpa: p.p_kpa, idx }));
-    const pdr = pvPts.map((p, idx) => ({ x: p.x - r0, p_kpa: p.p_kpa, idx }));
+    const pr: PrRow[] = pvPts.map((p, idx) => ({
+      x: p.x,
+      p_kpa: p.p_kpa,
+      p_mpa: p.p_kpa / KPA_PER_MPA,
+      idx,
+    }));
+    const pdr: PrRow[] = pvPts.map((p, idx) => ({
+      x: p.x - r0,
+      p_kpa: p.p_kpa,
+      p_mpa: p.p_kpa / KPA_PER_MPA,
+      idx,
+    }));
     const loops = detectLoopsByPressure(pvPts);
     const pMin = Math.min(...pvPts.map((p) => p.p_kpa));
     const pMax = Math.max(...pvPts.map((p) => p.p_kpa));
     const w3070 = pWindow3070(pMin, pMax);
+    const w3070Mpa =
+      w3070 && Number.isFinite(w3070.p30) && Number.isFinite(w3070.p70)
+        ? { p30: w3070.p30 / KPA_PER_MPA, p70: w3070.p70 / KPA_PER_MPA }
+        : null;
     const prXDomain = axisDomainPadded(pr.map((p) => p.x));
     const pdrXDomain = axisDomainPadded(pdr.map((p) => p.x));
-    return { pr, pdr, loops, w3070, prXDomain, pdrXDomain, nPoints: pvPts.length, r0 };
+    return { pr, pdr, loops, w3070, w3070Mpa, prXDomain, pdrXDomain, nPoints: pvPts.length, r0 };
   }, [curve, xKind, seatingRmm]);
 
   const prXAxisRadiusTicks = useMemo(() => {
@@ -447,7 +466,7 @@ export function TestWorkspace({
 
   const presiometryViz = useMemo(() => {
     type Area = { key: string; x1: number; x2: number; fill: string };
-    type Tan = { key: string; label: string; pts: Array<{ x: number; p_kpa: number }>; stroke: string };
+    type Tan = { key: string; label: string; pts: Array<{ x: number; p_mpa: number }>; stroke: string };
     const empty = { areasPr: [] as Area[], areasPdr: [] as Area[], tangentsPr: [] as Tan[], tangentsPdr: [] as Tan[] };
     if (!regressionSegments || !curve) return empty;
     const pv = extractPvPoints(curve);
@@ -500,26 +519,26 @@ export function TestWorkspace({
       tangentsPr.push({
         key: `t-pr-${seg.symbol}`,
         label: seg.symbol,
-        pts: pr.map(({ x, p_kpa }) => ({ x, p_kpa })),
+        pts: pr.map(({ x, p_kpa }) => ({ x, p_mpa: p_kpa / KPA_PER_MPA })),
         stroke,
       });
       tangentsPdr.push({
         key: `t-pdr-${seg.symbol}`,
         label: seg.symbol,
-        pts: pdr.map(({ x, p_kpa }) => ({ x, p_kpa })),
+        pts: pdr.map(({ x, p_kpa }) => ({ x, p_mpa: p_kpa / KPA_PER_MPA })),
         stroke,
       });
     };
 
     if (regressionSegments.load1) {
-      pushSeg(regressionSegments.load1, "L1");
+      pushSeg(regressionSegments.load1, "GL1");
       pushTan(regressionSegments.load1);
     }
     if (okType === "presiometry_program_b") {
       const loopsB = regressionSegments.loops as Array<{ gUr: PresiometryRegressionSegment | null }>;
       loopsB.forEach((pair, i) => {
         if (pair.gUr) {
-          pushSeg(pair.gUr, `UR${i + 1}`);
+          pushSeg(pair.gUr, `GUR${i + 1}`);
           pushTan(pair.gUr);
         }
       });
@@ -530,11 +549,11 @@ export function TestWorkspace({
       }>;
       loopsA.forEach((pair, i) => {
         if (pair.unload) {
-          pushSeg(pair.unload, `U${i + 1}`);
+          pushSeg(pair.unload, `GU${i + 1}`);
           pushTan(pair.unload);
         }
         if (pair.reload) {
-          pushSeg(pair.reload, `R${i + 1}`);
+          pushSeg(pair.reload, `GR${i + 1}`);
           pushTan(pair.reload);
         }
       });
@@ -575,19 +594,19 @@ export function TestWorkspace({
       out.push({ key, idx, label, fill, stroke: "oklch(0.25 0.02 260 / 0.65)" });
     };
     if (okType === "presiometry_program_a" || okType === "presiometry_program_b") {
-      pushIf("mk-L1-from", manualDraft.load1_from, "oklch(0.62 0.22 280)", "L1·from");
-      pushIf("mk-L1-to", manualDraft.load1_to, "oklch(0.52 0.2 280)", "L1·to");
+      pushIf("mk-GL1-from", manualDraft.load1_from, "oklch(0.62 0.22 280)", "GL1·from");
+      pushIf("mk-GL1-to", manualDraft.load1_to, "oklch(0.52 0.2 280)", "GL1·to");
     }
     manualDraft.loops.forEach((row, i) => {
       const bi = i + 1;
       if (okType === "presiometry_program_b") {
-        pushIf(`mk-UR${bi}-f`, row.gur_from, "oklch(0.58 0.2 200)", `UR${bi}·from`);
-        pushIf(`mk-UR${bi}-t`, row.gur_to, "oklch(0.48 0.18 200)", `UR${bi}·to`);
+        pushIf(`mk-GUR${bi}-f`, row.gur_from, "oklch(0.58 0.2 200)", `GUR${bi}·from`);
+        pushIf(`mk-GUR${bi}-t`, row.gur_to, "oklch(0.48 0.18 200)", `GUR${bi}·to`);
       } else {
-        pushIf(`mk-U${bi}-f`, row.unload_from, "oklch(0.62 0.2 35)", `U${bi}·from`);
-        pushIf(`mk-U${bi}-t`, row.unload_to, "oklch(0.52 0.18 35)", `U${bi}·to`);
-        pushIf(`mk-R${bi}-f`, row.reload_from, "oklch(0.55 0.18 155)", `R${bi}·from`);
-        pushIf(`mk-R${bi}-t`, row.reload_to, "oklch(0.48 0.16 155)", `R${bi}·to`);
+        pushIf(`mk-GU${bi}-f`, row.unload_from, "oklch(0.62 0.2 35)", `GU${bi}·from`);
+        pushIf(`mk-GU${bi}-t`, row.unload_to, "oklch(0.52 0.18 35)", `GU${bi}·to`);
+        pushIf(`mk-GR${bi}-f`, row.reload_from, "oklch(0.55 0.18 155)", `GR${bi}·from`);
+        pushIf(`mk-GR${bi}-t`, row.reload_to, "oklch(0.48 0.16 155)", `GR${bi}·to`);
       }
     });
     return out;
@@ -694,7 +713,7 @@ export function TestWorkspace({
       const json = (await res.json()) as { error?: string };
       if (!res.ok) throw new Error(json.error ?? "Eroare salvare setări.");
       setMsg("Setări manuale salvate.");
-      await load();
+      await load({ silent: true });
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Eroare");
     } finally {
@@ -776,7 +795,7 @@ export function TestWorkspace({
       const json = (await res.json()) as { ok?: boolean; error?: string };
       if (!res.ok) throw new Error(json.error ?? "Eroare salvare.");
       setMsg("Măsurători salvate.");
-      await load();
+      await load({ silent: true });
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Eroare");
     } finally {
@@ -806,7 +825,7 @@ export function TestWorkspace({
       const json = (await res.json()) as { ok?: boolean; error?: string; errors?: string[] };
       if (!res.ok) throw new Error(json.error ?? (json.errors?.[0] ?? "Eroare calcul."));
       setMsg("Calcule actualizate.");
-      await load();
+      await load({ silent: true });
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Eroare");
     } finally {
@@ -835,7 +854,7 @@ export function TestWorkspace({
           ? `Curbă importată${typeof json.points === "number" ? `: ${json.points} puncte` : ""}.`
           : "Import reușit.",
       );
-      await load();
+      await load({ silent: true });
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Eroare");
     } finally {
@@ -852,7 +871,7 @@ export function TestWorkspace({
       const json = (await res.json()) as { ok?: boolean; error?: string };
       if (!res.ok) throw new Error(json.error ?? "Eroare PDF.");
       setMsg("Raport generat (verificați lista rapoarte).");
-      await load();
+      await load({ silent: true });
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Eroare");
     } finally {
@@ -965,7 +984,7 @@ export function TestWorkspace({
                     const json = (await res.json()) as { error?: string };
                     if (!res.ok) throw new Error(json.error ?? "Eroare salvare note.");
                     setMsg("Note salvate.");
-                    await load();
+                    await load({ silent: true });
                   } catch (e) {
                     setErr(e instanceof Error ? e.message : "Eroare");
                   } finally {
@@ -1007,7 +1026,7 @@ export function TestWorkspace({
                       <TableHeader className="bg-muted/40">
                         <TableRow>
                           <TableHead className="w-[70px]">#</TableHead>
-                          <TableHead className="whitespace-nowrap">p (kPa)</TableHead>
+                          <TableHead className="whitespace-nowrap">p (MPa)</TableHead>
                           <TableHead className="whitespace-nowrap">{xLabel}</TableHead>
                           <TableHead className="whitespace-nowrap">t (s)</TableHead>
                         </TableRow>
@@ -1016,7 +1035,9 @@ export function TestWorkspace({
                         {curve.points.slice(0, 20).map((p, i) => (
                           <TableRow key={i}>
                             <TableCell className="text-muted-foreground text-xs">{i + 1}</TableCell>
-                            <TableCell className="font-mono text-xs tabular-nums">{Math.round(p.p_kpa)}</TableCell>
+                            <TableCell className="font-mono text-xs tabular-nums">
+                              {Math.round((p.p_kpa / KPA_PER_MPA) * 1000) / 1000}
+                            </TableCell>
                             <TableCell className="font-mono text-xs tabular-nums">
                               {Math.round((xKind === "radius_mm" ? (p.r_mm ?? p.v_cm3) : p.v_cm3) * 100) / 100}
                             </TableCell>
@@ -1048,16 +1069,16 @@ export function TestWorkspace({
                 </span>
                 {okType === "presiometry_program_a" ? (
                   <span className="text-muted-foreground block">
-                    Legenda ISO (Program A): <span className="font-medium">p</span>, <span className="font-medium">δ</span>;{" "}
-                    <span className="font-medium">G_L1</span> prima încărcare; <span className="font-medium">G_Ui</span> /{" "}
-                    <span className="font-medium">G_Ri</span> descărcare / reîncărcare (30–70% sau manual). Benzi =
+                    Legenda ISO (Program A): <span className="font-medium">p</span> (MPa), <span className="font-medium">δ</span>;{" "}
+                    <span className="font-medium">GL1</span> prima încărcare; <span className="font-medium">GUi</span> /{" "}
+                    <span className="font-medium">GRi</span> descărcare / reîncărcare (30–70% sau manual). Benzi =
                     intervale regresie; linii punctate = tangente.
                   </span>
                 ) : okType === "presiometry_program_b" ? (
                   <span className="text-muted-foreground block">
-                    Legenda ISO (Program B): <span className="font-medium">G_L1</span> prima încărcare (ca la A);{" "}
-                    <span className="font-medium">G_URi</span> = un singur modul pe buclă (regresie în bandă de presiune
-                    la mijlocul buclei, sau interval manual G_UR). Benzi / tangente ca mai sus.
+                    Legenda ISO (Program B): <span className="font-medium">GL1</span> prima încărcare (ca la A);{" "}
+                    <span className="font-medium">GURi</span> = un singur modul pe buclă (regresie în bandă de presiune
+                    la mijlocul buclei, sau interval manual). Benzi / tangente ca mai sus.
                   </span>
                 ) : null}
               </CardDescription>
@@ -1097,12 +1118,12 @@ export function TestWorkspace({
                         typeof chartPick === "object" &&
                         "k" in chartPick &&
                         chartPick.k === "gur_from" &&
-                        `bucla ${chartPick.loop + 1} G_UR (from)`}
+                        `bucla ${chartPick.loop + 1} GUR (from)`}
                       {chartPick != null &&
                         typeof chartPick === "object" &&
                         "k" in chartPick &&
                         chartPick.k === "gur_to" &&
-                        `bucla ${chartPick.loop + 1} G_UR (to)`}{" "}
+                        `bucla ${chartPick.loop + 1} GUR (to)`}{" "}
                       (index în serie).{" "}
                       <Button type="button" variant="ghost" size="sm" className="ml-2 h-7 px-2" onClick={() => setChartPick(null)}>
                         Anulează
@@ -1134,14 +1155,14 @@ export function TestWorkspace({
                           />
                           <YAxis
                             type="number"
-                            dataKey="p_kpa"
+                            dataKey="p_mpa"
                             tick={{ fontSize: 11 }}
-                            label={{ value: "p (kPa)", angle: -90, position: "insideLeft", style: { fontSize: 11 } }}
+                            label={{ value: "p (MPa)", angle: -90, position: "insideLeft", style: { fontSize: 11 } }}
                           />
                           <Tooltip
                             formatter={(v) => {
                               const n = typeof v === "number" ? v : Number(v);
-                              return [Number.isFinite(n) ? String(Math.round(n * 100) / 100) : "—", ""];
+                              return [Number.isFinite(n) ? String(Math.round(n * 10000) / 10000) : "—", "MPa"];
                             }}
                             labelFormatter={() => ""}
                             contentStyle={{ borderRadius: 8, fontSize: 12 }}
@@ -1160,7 +1181,7 @@ export function TestWorkspace({
                             ))}
                           <Line
                             type="monotone"
-                            dataKey="p_kpa"
+                            dataKey="p_mpa"
                             stroke="oklch(0.45 0.14 250)"
                             name="p"
                             dot={lineDotForPicking || false}
@@ -1171,8 +1192,8 @@ export function TestWorkspace({
                               <ReferenceLine
                                 key={t.key}
                                 segment={[
-                                  { x: t.pts[0]!.x, y: t.pts[0]!.p_kpa },
-                                  { x: t.pts[1]!.x, y: t.pts[1]!.p_kpa },
+                                  { x: t.pts[0]!.x, y: t.pts[0]!.p_mpa },
+                                  { x: t.pts[1]!.x, y: t.pts[1]!.p_mpa },
                                 ]}
                                 stroke={t.stroke}
                                 strokeWidth={2}
@@ -1188,17 +1209,17 @@ export function TestWorkspace({
                               />
                             ))}
                           {showRegressionOverlays &&
-                            chartSeries.w3070?.p30 != null &&
-                            chartSeries.w3070?.p70 != null && (
+                            chartSeries.w3070Mpa?.p30 != null &&
+                            chartSeries.w3070Mpa?.p70 != null && (
                               <>
                                 <ReferenceLine
-                                  y={chartSeries.w3070.p30}
+                                  y={chartSeries.w3070Mpa.p30}
                                   stroke="oklch(0.65 0.15 90)"
                                   strokeDasharray="4 4"
                                   ifOverflow="extendDomain"
                                 />
                                 <ReferenceLine
-                                  y={chartSeries.w3070.p70}
+                                  y={chartSeries.w3070Mpa.p70}
                                   stroke="oklch(0.65 0.15 90)"
                                   strokeDasharray="4 4"
                                   ifOverflow="extendDomain"
@@ -1214,7 +1235,7 @@ export function TestWorkspace({
                                 <ReferenceDot
                                   key={`peak-${idx}`}
                                   x={peak.x}
-                                  y={peak.p_kpa}
+                                  y={peak.p_mpa}
                                   r={4}
                                   fill="oklch(0.55 0.18 30)"
                                   stroke="none"
@@ -1222,7 +1243,7 @@ export function TestWorkspace({
                                 <ReferenceDot
                                   key={`valley-${idx}`}
                                   x={valley.x}
-                                  y={valley.p_kpa}
+                                  y={valley.p_mpa}
                                   r={4}
                                   fill="oklch(0.6 0.16 140)"
                                   stroke="none"
@@ -1237,7 +1258,7 @@ export function TestWorkspace({
                                 <ReferenceDot
                                   key={m.key}
                                   x={row.x}
-                                  y={row.p_kpa}
+                                  y={row.p_mpa}
                                   r={5}
                                   fill={m.fill}
                                   stroke={m.stroke}
@@ -1258,7 +1279,7 @@ export function TestWorkspace({
                     {showRegressionOverlays ? (
                       <p className="text-muted-foreground text-[10px]">
                         Marcaje: portocaliu = vârf buclă, verde = minim buclă (auto). Portocaliu deschis = praguri 30% /
-                        70% din domeniul p. Benzi colorate = intervale regresie; linii colorate punctat = tangente{" "}
+                        70% din domeniul p (MPa). Benzi colorate = intervale regresie; linii colorate punctat = tangente{" "}
                         <span className="font-medium">G</span>.
                       </p>
                     ) : manualDraft.mode === "manual" && manualPickMarkers.length > 0 ? (
@@ -1300,14 +1321,14 @@ export function TestWorkspace({
                           />
                           <YAxis
                             type="number"
-                            dataKey="p_kpa"
+                            dataKey="p_mpa"
                             tick={{ fontSize: 11 }}
-                            label={{ value: "p (kPa)", angle: -90, position: "insideLeft", style: { fontSize: 11 } }}
+                            label={{ value: "p (MPa)", angle: -90, position: "insideLeft", style: { fontSize: 11 } }}
                           />
                           <Tooltip
                             formatter={(v) => {
                               const n = typeof v === "number" ? v : Number(v);
-                              return [Number.isFinite(n) ? String(Math.round(n * 100) / 100) : "—", ""];
+                              return [Number.isFinite(n) ? String(Math.round(n * 10000) / 10000) : "—", "MPa"];
                             }}
                             labelFormatter={() => ""}
                             contentStyle={{ borderRadius: 8, fontSize: 12 }}
@@ -1326,7 +1347,7 @@ export function TestWorkspace({
                             ))}
                           <Line
                             type="monotone"
-                            dataKey="p_kpa"
+                            dataKey="p_mpa"
                             stroke="oklch(0.5 0.12 150)"
                             name="p"
                             dot={false}
@@ -1337,8 +1358,8 @@ export function TestWorkspace({
                               <ReferenceLine
                                 key={t.key}
                                 segment={[
-                                  { x: t.pts[0]!.x, y: t.pts[0]!.p_kpa },
-                                  { x: t.pts[1]!.x, y: t.pts[1]!.p_kpa },
+                                  { x: t.pts[0]!.x, y: t.pts[0]!.p_mpa },
+                                  { x: t.pts[1]!.x, y: t.pts[1]!.p_mpa },
                                 ]}
                                 stroke={t.stroke}
                                 strokeWidth={2}
@@ -1361,7 +1382,7 @@ export function TestWorkspace({
                                 <ReferenceDot
                                   key={m.key}
                                   x={row.x}
-                                  y={row.p_kpa}
+                                  y={row.p_mpa}
                                   r={5}
                                   fill={m.fill}
                                   stroke={m.stroke}
@@ -1441,7 +1462,7 @@ export function TestWorkspace({
                         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4 sm:items-end">
                           <div>
                             <Label className="text-xs">
-                              {okType === "presiometry_program_b" ? "G_L1 — from (indice)" : "Încărcare 1 (from)"}
+                              {okType === "presiometry_program_b" ? "GL1 — from (indice)" : "Încărcare 1 (from)"}
                             </Label>
                             <div className="flex gap-1">
                               <Input
@@ -1467,7 +1488,7 @@ export function TestWorkspace({
                           </div>
                           <div>
                             <Label className="text-xs">
-                              {okType === "presiometry_program_b" ? "G_L1 — to (indice)" : "Încărcare 1 (to)"}
+                              {okType === "presiometry_program_b" ? "GL1 — to (indice)" : "Încărcare 1 (to)"}
                             </Label>
                             <div className="flex gap-1">
                               <Input
@@ -1499,8 +1520,8 @@ export function TestWorkspace({
                               <TableHeader className="bg-muted/40">
                                 <TableRow>
                                   <TableHead className="w-[70px]">Buclă</TableHead>
-                                  <TableHead>G_UR (from)</TableHead>
-                                  <TableHead>G_UR (to)</TableHead>
+                                  <TableHead>GUR (from)</TableHead>
+                                  <TableHead>GUR (to)</TableHead>
                                 </TableRow>
                               </TableHeader>
                               <TableBody>
@@ -1722,8 +1743,8 @@ export function TestWorkspace({
                   {okType === "presiometry_program_c"
                     ? "Program C (creep): în această versiune avem import + structură. Calculele de creep vor fi adăugate ulterior."
                     : okType === "presiometry_program_b"
-                      ? "Program B: G_L1 (prima încărcare) + G_UR pe buclă (bandă la mijlocul buclei sau manual)."
-                      : "Program A: G_L1 + G_U / G_R pe ferestre 30–70% (sau manual)."}
+                      ? "Program B: GL1 (prima încărcare) + GUR pe buclă (bandă la mijlocul buclei sau manual)."
+                      : "Program A: GL1 + GU / GR pe ferestre 30–70% (sau manual)."}
                 </span>
                 {okType !== "presiometry_program_c" ? (
                   <span className="text-muted-foreground block text-xs">

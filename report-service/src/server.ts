@@ -156,6 +156,14 @@ async function buildHtmlForTest(testId: string): Promise<{
   };
 }
 
+app.get("/", (_req, res) => {
+  res.type("application/json").json({
+    ok: true,
+    service: "presiometrie-report-service",
+    hint: "Stare: GET /health — PDF: POST /reports (cu antet x-report-secret sau token).",
+  });
+});
+
 app.get("/health", (_req, res) => {
   res.json({ ok: true, service: "presiometrie-report-service" });
 });

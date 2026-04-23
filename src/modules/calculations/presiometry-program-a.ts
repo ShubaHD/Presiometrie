@@ -1,5 +1,6 @@
 import type { PresiometryCurvePayload } from "@/lib/presiometry-curve";
 import type { CalculationFn, CalculationOutput, MeasurementMap, ResultLine } from "./types";
+import { kpaToMpa, slopeKpaPerUnitToMpaPerUnit } from "./presiometry-mp";
 import { parsePresiometryManualSettings } from "./presiometry-manual";
 import { buildProgramARegressionSegments } from "./presiometry-regression-segments";
 import { detectLoopsByPressure, extractPvPoints, pWindow3070, xAxisLabel } from "./presiometry-utils";
@@ -28,7 +29,7 @@ export const calculatePresiometryProgramA: CalculationFn = (m: MeasurementMap, c
     final: [],
     warnings: [],
     errors: [],
-    formulaVersion: "pmt-a-v1",
+    formulaVersion: "pmt-a-v2",
   };
 
   const pCtx =
@@ -53,8 +54,8 @@ export const calculatePresiometryProgramA: CalculationFn = (m: MeasurementMap, c
     pMin = Math.min(pMin, p.p_kpa);
   }
   out.intermediate.push(
-    line(20, "pmt_pmin_kpa", "Presiune minimă (în serie) p_min", Number.isFinite(pMin) ? pMin : null, "kPa", 0, false),
-    line(30, "pmt_pmax_kpa", "Presiune maximă (în serie) p_max", Number.isFinite(pMax) ? pMax : null, "kPa", 0, false),
+    line(20, "pmt_pmin_mpa", "Presiune minimă (în serie) p_min", kpaToMpa(Number.isFinite(pMin) ? pMin : null), "MPa", 3, false),
+    line(30, "pmt_pmax_mpa", "Presiune maximă (în serie) p_max", kpaToMpa(Number.isFinite(pMax) ? pMax : null), "MPa", 3, false),
   );
 
   const loops = detectLoopsByPressure(pts);
@@ -74,24 +75,26 @@ export const calculatePresiometryProgramA: CalculationFn = (m: MeasurementMap, c
 
   if (segments.load1) {
     const reg = segments.load1.regression;
-    const slope = reg.slope != null ? Math.abs(reg.slope) : null;
+    const slope = slopeKpaPerUnitToMpaPerUnit(reg.slope != null ? Math.abs(reg.slope) : null);
     const isManual = segments.load1.source === "manual";
     out.final.push(
       line(
         100,
         `pmt_a_load1_${axis.keySuffix}`,
         isManual
-          ? `Modul (manual) prima încărcare: |Δp/Δ${axis.label}|`
-          : `Modul (proxy) prima încărcare 30–70%: |Δp/Δ${axis.label}|`,
+          ? `GL1: |Δp/Δ${axis.label}|`
+          : `GL1 (30–70%): |Δp/Δ${axis.label}|`,
         slope,
-        `kPa/${axis.unit}`,
+        `MPa/${axis.unit}`,
         3,
       ),
-      line(110, "pmt_a_load1_r2", "Regresie prima încărcare: R²", reg.r2, "—", 3, false),
-      line(120, "pmt_a_load1_n", "Regresie prima încărcare: N puncte", reg.n, "—", 0, false),
+      line(110, "pmt_a_load1_r2", "GL1: R²", reg.r2, "—", 3, false),
+      line(120, "pmt_a_load1_n", "GL1: N puncte", reg.n, "—", 0, false),
     );
   } else if (manual?.mode === "manual" && manual.load1) {
-    out.warnings.push("Prima încărcare (manual): interval invalid sau prea puține puncte pentru regresie.");
+    out.warnings.push("GL1 (manual): interval invalid sau prea puține puncte pentru regresie.");
+  } else if (manual?.mode === "manual" && !manual.load1) {
+    out.warnings.push("Mod manual: setați interval GL1 sau comutați la Auto pentru prima încărcare.");
   } else if (!wLoad) {
     out.warnings.push("Nu pot calcula fereastra 30–70% pentru prima încărcare (Δp≤0).");
   }
@@ -103,31 +106,40 @@ export const calculatePresiometryProgramA: CalculationFn = (m: MeasurementMap, c
 
     const regUn = pair.unload?.regression ?? { slope: null, intercept: null, r2: null, n: 0 };
     const regRe = pair.reload?.regression ?? { slope: null, intercept: null, r2: null, n: 0 };
-    const kUn = regUn.slope != null ? Math.abs(regUn.slope) : null;
-    const kRe = regRe.slope != null ? Math.abs(regRe.slope) : null;
+    const kUn = slopeKpaPerUnitToMpaPerUnit(regUn.slope != null ? Math.abs(regUn.slope) : null);
+    const kRe = slopeKpaPerUnitToMpaPerUnit(regRe.slope != null ? Math.abs(regRe.slope) : null);
 
     const i = idx + 1;
     const manLoop = manual?.mode === "manual" ? manual.loops?.[idx] : undefined;
-    out.final.push(
-      line(
-        order,
-        `pmt_a_loop${i}_unload_${axis.keySuffix}`,
-        `Bucla ${i}: descărcare ${manual?.mode === "manual" && manLoop?.unload ? "manual" : "30–70%"} |Δp/Δ${axis.label}|`,
-        kUn,
-        `kPa/${axis.unit}`,
-        3,
-      ),
-      line(order + 10, `pmt_a_loop${i}_unload_r2`, `Bucla ${i}: descărcare R²`, regUn.r2, "—", 3, false),
-      line(
-        order + 20,
-        `pmt_a_loop${i}_reload_${axis.keySuffix}`,
-        `Bucla ${i}: reîncărcare ${manual?.mode === "manual" && manLoop?.reload ? "manual" : "30–70%"} |Δp/Δ${axis.label}|`,
-        kRe,
-        `kPa/${axis.unit}`,
-        3,
-      ),
-      line(order + 30, `pmt_a_loop${i}_reload_r2`, `Bucla ${i}: reîncărcare R²`, regRe.r2, "—", 3, false),
-    );
+    const unMan = Boolean(manLoop?.unload && pair.unload);
+    const reMan = Boolean(manLoop?.reload && pair.reload);
+
+    if (pair.unload) {
+      out.final.push(
+        line(
+          order,
+          `pmt_a_loop${i}_unload_${axis.keySuffix}`,
+          `GU${i}: |Δp/Δ${axis.label}|${unMan ? " (manual)" : " (30–70%)"}`,
+          kUn,
+          `MPa/${axis.unit}`,
+          3,
+        ),
+        line(order + 10, `pmt_a_loop${i}_unload_r2`, `GU${i}: R²`, regUn.r2, "—", 3, false),
+      );
+    }
+    if (pair.reload) {
+      out.final.push(
+        line(
+          order + 20,
+          `pmt_a_loop${i}_reload_${axis.keySuffix}`,
+          `GR${i}: |Δp/Δ${axis.label}|${reMan ? " (manual)" : " (30–70%)"}`,
+          kRe,
+          `MPa/${axis.unit}`,
+          3,
+        ),
+        line(order + 30, `pmt_a_loop${i}_reload_r2`, `GR${i}: R²`, regRe.r2, "—", 3, false),
+      );
+    }
     order += 50;
   });
 

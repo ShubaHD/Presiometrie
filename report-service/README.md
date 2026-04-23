@@ -35,10 +35,10 @@ Ordinea contează: mai întâi **Railway** (report-service), apoi **Vercel** (`w
 4. **Networking** → generează domeniu public. Copiază URL-ul `https://….up.railway.app` (sau custom) — acesta este **`REPORT_SERVICE_URL`** în Vercel.
 5. Verifică: `https://<url-railway>/health` → JSON cu `"ok": true`.
 
-### 3. Vercel — aplicația Next (`web`)
+### 3. Vercel — aplicația Next.js
 
 1. [vercel.com](https://vercel.com) → **Add New Project** → **Import** același repo GitHub.
-2. **Root Directory**: `web`.
+2. **Root Directory**: lăsați **gol** sau puneți `.` — în acest monorepo Next.js este la **rădăcina** repository-ului (nu există subfolder `web/`).
 3. **Environment Variables** (Production; la nevoie și Preview):
    - `NEXT_PUBLIC_SUPABASE_URL`
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
@@ -60,7 +60,7 @@ Ordinea contează: mai întâi **Railway** (report-service), apoi **Vercel** (`w
 
 ### 6. Actualizări
 
-- Push pe GitHub → ambele platforme pot rula build nou. Opțional, în Railway restricționezi **Watch paths** la `report-service/**` ca să nu rebuild-ui la fiecare schimbare doar în `web/` (dacă interfața o oferă).
+- Push pe GitHub → ambele platforme pot rula build nou. Opțional, în Railway restricționezi **Watch paths** la `report-service/**` ca să nu rebuild-ui la fiecare schimbare doar în aplicația Next (dacă interfața o oferă).
 
 ---
 
@@ -80,13 +80,13 @@ Ordinea contează: mai întâi **Railway** (report-service), apoi **Vercel** (`w
 
 ```bash
 cd report-service
-cp .env.example .env
-# editați .env (Supabase + același secret ca în web/.env.local)
+cp env.example .env
+# editați .env (Supabase + același secret ca în .env / .env.local de la rădăcina Next)
 npm install
 npm run dev
 ```
 
-În `web/.env.local`:
+În `.env` sau `.env.local` la **rădăcina** repo-ului (lângă `package.json` al Next):
 
 ```env
 REPORT_SERVICE_URL=http://localhost:4000
@@ -100,7 +100,7 @@ REPORT_SERVICE_SECRET=acelasi-secret-ca-in-report-service
 ### Railway (exemplu)
 
 1. [railway.app](https://railway.app) → New Project → Deploy from GitHub repo (același repo ca ROCA).
-2. Adaugă serviciu **Docker** și setează **Root Directory** la `report-service`.
+2. **Root Directory**: `report-service`. Build: **Dockerfile** (în repo există `report-service/railway.toml` care indică Dockerfile-ul).
 3. În **Variables** pune: `REPORT_SERVICE_SECRET`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, opțional `REPORTS_BUCKET`, și `REPORT_SERVICE_CORS_ORIGIN` = URL-ul Vercel al aplicației (după ce îl ai).
 4. Railway dă un URL public `https://....railway.app` → acesta este `REPORT_SERVICE_URL` pentru Vercel.
 
@@ -119,7 +119,7 @@ Build imaginea din folderul `report-service`, publică portul (ex. 4000), seteaz
 
 1. **GitHub**: împinge codul pe un repository.
 2. **Vercel**: [vercel.com](https://vercel.com) → Add New Project → Import acel repository.
-3. Setează **Root Directory** la `web` (dacă monorepo-ul tău are aplicația în `web/`).
+3. **Root Directory**: lăsați gol sau `.` pentru acest proiect (Next la rădăcina repo-ului). Dacă fork-ul tău are aplicația în `web/`, puneți `web`.
 4. În **Settings → Environment Variables** adaugă (Production / Preview după nevoie):
    - `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`
    - `SUPABASE_SERVICE_ROLE_KEY`

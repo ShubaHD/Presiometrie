@@ -2473,8 +2473,8 @@ export async function buildPresiometryPayload(supabase, testId, templateCode, te
         ? svgLineChart({
             title: xKind === "radius_mm" ? "Curba p–R" : "Curba p–V",
             xLabel: xKind === "radius_mm" ? "R (mm)" : "V (cm³)",
-            yLabel: "p (kPa)",
-            points: curvePts.map((p) => ({ x: p.x, y: p.p_kpa })),
+            yLabel: "p (MPa)",
+            points: curvePts.map((p) => ({ x: p.x, y: p.p_kpa / 1000 })),
             padAxesRatio: tt !== "presiometry_program_c" ? 0.06 : undefined,
             bands: overlaysPdf?.bandsPr,
             segmentLines: overlaysPdf?.linesPr,
@@ -2484,10 +2484,10 @@ export async function buildPresiometryPayload(supabase, testId, templateCode, te
         ? svgLineChart({
             title: xKind === "radius_mm" ? "Curba p–δ" : "Curba p–ΔV",
             xLabel: xKind === "radius_mm" ? "δ (mm)" : "ΔV (cm³)",
-            yLabel: "p (kPa)",
+            yLabel: "p (MPa)",
             points: curvePts.map((p) => ({
                 x: xKind === "radius_mm" ? p.r_mm - seatingR0 : p.v_cm3 - (curvePts[0]?.v_cm3 ?? 0),
-                y: p.p_kpa,
+                y: p.p_kpa / 1000,
             })),
             padAxesRatio: tt !== "presiometry_program_c" ? 0.06 : undefined,
             bands: overlaysPdf?.bandsPdr,
