@@ -56,20 +56,22 @@ export function BoreholeDetailClient({ projectId, boreholeId }: { projectId: str
   const loadSamples = useCallback(async () => {
     setLoadingSamples(true);
     try {
-      const res = await fetch(`/api/boreholes/${boreholeId}/samples?page=1&pageSize=200`);
+      const res = await fetch(
+        `/api/boreholes/${encodeURIComponent(boreholeId)}/samples?projectId=${encodeURIComponent(projectId)}&page=1&pageSize=200`,
+      );
       const json = (await res.json()) as Paginated<Sample> & { error?: string };
       if (res.ok) setSamples(json.data ?? []);
     } finally {
       setLoadingSamples(false);
     }
-  }, [boreholeId]);
+  }, [boreholeId, projectId]);
 
   const load = useCallback(async () => {
     setErr(null);
     try {
       const [pr, br] = await Promise.all([
         fetch(`/api/projects/${projectId}`),
-        fetch(`/api/boreholes/${boreholeId}`),
+        fetch(`/api/boreholes/${encodeURIComponent(boreholeId)}?projectId=${encodeURIComponent(projectId)}`),
       ]);
       const pj = (await pr.json()) as Project & { error?: string };
       const bj = (await br.json()) as Borehole & { error?: string };
@@ -99,8 +101,9 @@ export function BoreholeDetailClient({ projectId, boreholeId }: { projectId: str
     let cancelled = false;
     void (async () => {
       const q = new URLSearchParams({ testType: autoCodeTestType });
+      q.set("projectId", projectId);
       if (allocationDateIso.trim()) q.set("date", allocationDateIso.trim());
-      const res = await fetch(`/api/boreholes/${boreholeId}/samples/next-code?${q.toString()}`);
+      const res = await fetch(`/api/boreholes/${encodeURIComponent(boreholeId)}/samples/next-code?${q.toString()}`);
       const json = (await res.json()) as { suggestedCode?: string; error?: string };
       if (!cancelled && res.ok && json.suggestedCode) setSuggestedSampleCode(json.suggestedCode);
       else if (!cancelled) setSuggestedSampleCode(null);
@@ -108,23 +111,26 @@ export function BoreholeDetailClient({ projectId, boreholeId }: { projectId: str
     return () => {
       cancelled = true;
     };
-  }, [openSample, autoSampleNumber, boreholeId, autoCodeTestType, allocationDateIso]);
+  }, [openSample, autoSampleNumber, boreholeId, projectId, autoCodeTestType, allocationDateIso]);
 
   const save = async () => {
     if (!row) return;
     setBusy(true);
     try {
-      const res = await fetch(`/api/boreholes/${boreholeId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          code: row.code,
-          name: row.name,
-          depth_total: row.depth_total,
-          elevation: row.elevation,
-          notes: row.notes,
-        }),
-      });
+      const res = await fetch(
+        `/api/boreholes/${encodeURIComponent(boreholeId)}?projectId=${encodeURIComponent(projectId)}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            code: row.code,
+            name: row.name,
+            depth_total: row.depth_total,
+            elevation: row.elevation,
+            notes: row.notes,
+          }),
+        },
+      );
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Eroare");
       setRow(json);
@@ -140,19 +146,22 @@ export function BoreholeDetailClient({ projectId, boreholeId }: { projectId: str
     setBusy(true);
     setErr(null);
     try {
-      const res = await fetch(`/api/boreholes/${boreholeId}/samples`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          auto_number: autoSampleNumber,
-          code: autoSampleNumber ? undefined : newSp.code.trim(),
-          test_type: autoSampleNumber ? autoCodeTestType : undefined,
-          allocation_date: autoSampleNumber && allocationDateIso.trim() ? allocationDateIso.trim() : undefined,
-          depth_from: newSp.depth_from === "" ? null : Number(newSp.depth_from),
-          depth_to: newSp.depth_to === "" ? null : Number(newSp.depth_to),
-          lithology: newSp.lithology.trim() || null,
-        }),
-      });
+      const res = await fetch(
+        `/api/boreholes/${encodeURIComponent(boreholeId)}/samples?projectId=${encodeURIComponent(projectId)}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            auto_number: autoSampleNumber,
+            code: autoSampleNumber ? undefined : newSp.code.trim(),
+            test_type: autoSampleNumber ? autoCodeTestType : undefined,
+            allocation_date: autoSampleNumber && allocationDateIso.trim() ? allocationDateIso.trim() : undefined,
+            depth_from: newSp.depth_from === "" ? null : Number(newSp.depth_from),
+            depth_to: newSp.depth_to === "" ? null : Number(newSp.depth_to),
+            lithology: newSp.lithology.trim() || null,
+          }),
+        },
+      );
       const json = (await res.json()) as Sample & { error?: string };
       if (!res.ok) throw new Error(json.error ?? "Eroare");
       const finalCode = (json as unknown as { code?: unknown }).code;
@@ -479,7 +488,7 @@ export function BoreholeDetailClient({ projectId, boreholeId }: { projectId: str
           <ExplorerDeleteDialog
             layout="inline"
             inlineLabel="Șterge forajul"
-            apiUrl={`/api/boreholes/${boreholeId}`}
+            apiUrl={`/api/boreholes/${encodeURIComponent(boreholeId)}?projectId=${encodeURIComponent(projectId)}`}
             title="Șterge foraj"
             description={`Forajul „${row.code}” și toate probele / testele aferente vor fi eliminate din baza de date.`}
             pathPrefix={`/projects/${projectId}/boreholes/${boreholeId}`}

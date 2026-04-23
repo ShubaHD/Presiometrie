@@ -1,39 +1,17 @@
 import { requireAuth } from "@/lib/auth/session";
+import { resolveBoreholeUuid } from "@/lib/lab/resolve-borehole-id";
 import { isTestType, parseAllocationDateIso } from "@/lib/sample-auto-code";
 import { toErrorMessage } from "@/lib/to-error-message";
 import { NextResponse } from "next/server";
 
 type Params = { params: Promise<{ boreholeId: string }> };
 
-function isUuid(v: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v.trim());
-}
-
-async function resolveBoreholeUuid(supabase: { from: (t: string) => any }, boreholeId: string): Promise<string> {
-  const raw = boreholeId.trim();
-  if (isUuid(raw)) return raw;
-  const { data: byCode } = await supabase
-    .from("boreholes")
-    .select("id")
-    .eq("code", raw)
-    .is("deleted_at", null)
-    .maybeSingle();
-  if (byCode?.id) return String(byCode.id);
-  const { data: byName } = await supabase
-    .from("boreholes")
-    .select("id")
-    .eq("name", raw)
-    .is("deleted_at", null)
-    .maybeSingle();
-  if (byName?.id) return String(byName.id);
-  throw new Error(`Foraj invalid: "${boreholeId}". Așteptam UUID (id) sau un cod/nume existent.`);
-}
-
 /** Previzualizare cod următor PREFIX+DDMMYYYY+##### (fără consumare din contor). */
 export async function GET(req: Request, { params }: Params) {
   try {
     const { boreholeId } = await params;
     const { searchParams } = new URL(req.url);
+    const projectId = searchParams.get("projectId");
     const testType = (searchParams.get("testType") ?? "").trim();
     if (!isTestType(testType)) {
       return NextResponse.json(
@@ -45,7 +23,12 @@ export async function GET(req: Request, { params }: Params) {
     const auth = await requireAuth();
     if (!auth.ok) return auth.res;
     const { supabase } = auth;
-    const boreholeUuid = await resolveBoreholeUuid(supabase, boreholeId);
+    let boreholeUuid: string;
+    try {
+      boreholeUuid = await resolveBoreholeUuid(supabase, boreholeId, projectId);
+    } catch (e) {
+      return NextResponse.json({ error: toErrorMessage(e) }, { status: 400 });
+    }
     const rpcArgs: {
       p_borehole_id: string;
       p_test_type: string;
