@@ -19,7 +19,8 @@ export interface CalculationOutput {
   formulaVersion: string;
 }
 
-export type MeasurementMap = Record<string, number | null | undefined>;
+/** Valori din DB pot fi text (ex. note teren); calculele folosesc `n()` pentru câmpuri numerice. */
+export type MeasurementMap = Record<string, number | string | null | undefined>;
 
 export interface CalculationContext {
   /** SR EN ISO 22476-5 — presiometrie. */

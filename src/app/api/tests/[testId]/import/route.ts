@@ -129,7 +129,7 @@ export async function POST(req: Request, { params }: Params) {
         test_id: string;
         key: string;
         label: string;
-        value: number | null;
+        value: number | string | null;
         unit: string | null;
         display_order: number;
         source: "imported";
@@ -150,9 +150,16 @@ export async function POST(req: Request, { params }: Params) {
 
       // Tube type -> pmt_probe_type (NXH / NX etc.)
       if (hdr.tubeType?.trim()) {
-        // stored as number field in current schema; keep as NULL and store actual text in test JSON later if needed
-        // For now, we just mark device_name with tube type
-        const dev = `Elast Logger 3i${hdr.tubeType ? ` · Tube ${hdr.tubeType}` : ""}`;
+        rows.push({
+          test_id: testId,
+          key: "pmt_probe_type",
+          label: "Tip presiometru / sondă (opțional)",
+          value: hdr.tubeType.trim(),
+          unit: "—",
+          display_order: 5,
+          source: "imported",
+        });
+        const dev = `Elast Logger 3i · Tube ${hdr.tubeType.trim()}`;
         await supabase
           .from("tests")
           .update({ device_name: dev, updated_by: actor.displayName, updated_by_user_id: actor.userId })

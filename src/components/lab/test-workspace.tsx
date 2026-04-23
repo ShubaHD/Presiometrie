@@ -15,8 +15,8 @@ import { PMT_PROBE_DIAMETER_MM, PMT_SEATING_R_MM_DEFAULT } from "@/lib/presiomet
 import { parsePresiometryCurvePayload } from "@/lib/presiometry-curve";
 import { validateMeasurementsForTestType } from "@/lib/measurement-schemas";
 import { newTestOptionLabel } from "@/lib/test-type-options";
-import type { TestMeasurement, TestResult, TestRow, TestType } from "@/types/lab";
-import { Crosshair, Hand, Loader2, MousePointer2 } from "lucide-react";
+import type { ReportRow, TestMeasurement, TestResult, TestRow, TestType } from "@/types/lab";
+import { Crosshair, ExternalLink, Hand, Loader2, MousePointer2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { TransformComponent, TransformWrapper } from "react-zoom-pan-pinch";
 import { useForm } from "react-hook-form";
@@ -59,8 +59,18 @@ type ApiGet = {
   measurements: TestMeasurement[];
   results: TestResult[];
   files: Array<{ id: string; file_name: string; file_path: string; uploaded_at: string; file_role?: string | null }>;
-  reports: Array<{ id: string; pdf_path: string; generated_at: string }>;
+  reports: ReportRow[];
 };
+
+function readSpecimenPhotosInclude(reportOptionsJson: unknown): boolean {
+  if (reportOptionsJson == null) return true;
+  if (typeof reportOptionsJson !== "object") return true;
+  const sp = (reportOptionsJson as Record<string, unknown>).specimen_photos;
+  if (sp && typeof sp === "object" && "include" in sp) {
+    return Boolean((sp as Record<string, unknown>).include);
+  }
+  return true;
+}
 
 function isPresiometryType(tt: unknown): tt is TestType {
   return (
@@ -291,6 +301,8 @@ export function TestWorkspace({
   const [test, setTest] = useState<ApiGet["test"] | null>(null);
   const [measurements, setMeasurements] = useState<TestMeasurement[]>([]);
   const [results, setResults] = useState<TestResult[]>([]);
+  const [reports, setReports] = useState<ReportRow[]>([]);
+  const [specimenPhotosInPdf, setSpecimenPhotosInPdf] = useState(true);
 
   /** `silent`: nu ascunde întreg ecranul (păstrează tab-ul activ); folosit după salvări / calcule. */
   const load = useCallback(async (opts?: { silent?: boolean }) => {
@@ -304,6 +316,8 @@ export function TestWorkspace({
       setTest(json.test);
       setMeasurements(json.measurements ?? []);
       setResults(json.results ?? []);
+      setReports(json.reports ?? []);
+      setSpecimenPhotosInPdf(readSpecimenPhotosInclude((json.test as TestRow).report_options_json));
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Eroare");
     } finally {
@@ -772,6 +786,17 @@ export function TestWorkspace({
 
       const payload = presetRows.map((r, idx) => {
         const raw = values[r.key];
+        if (r.valueKind === "text") {
+          const s =
+            raw === "" || raw === null || raw === undefined ? null : String(raw).trim().slice(0, 1000);
+          return {
+            key: r.key,
+            label: r.label,
+            value: s,
+            unit: r.unit,
+            display_order: (idx + 1) * 10,
+          };
+        }
         const num =
           raw === "" || raw === null || raw === undefined
             ? null
@@ -882,6 +907,87 @@ export function TestWorkspace({
     }
   };
 
+  const checkReportService = async () => {
+    setBusy(true);
+    setMsg(null);
+    setErr(null);
+    try {
+      const res = await fetch("/api/report-service/status");
+      const j = (await res.json()) as { ok?: boolean; hint?: string; error?: string };
+      if (!res.ok) {
+        setErr(typeof j.error === "string" ? j.error : "Eroare verificare.");
+        return;
+      }
+      setMsg(j.ok === true ? (j.hint ?? "Report-service OK.") : (j.hint ?? "Report-service indisponibil sau neconfigurat."));
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Eroare");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const openReportPreview = () => {
+    window.open(`/api/tests/${testId}/report/preview`, "_blank", "noopener,noreferrer");
+  };
+
+  const saveReportOptions = async () => {
+    setBusy(true);
+    setMsg(null);
+    setErr(null);
+    try {
+      const res = await fetch(`/api/tests/${testId}`, {
+        method: "PATCH",
+        headers: jsonLabHeaders(),
+        body: JSON.stringify({
+          report_options_json: { specimen_photos: { include: specimenPhotosInPdf } },
+        }),
+      });
+      const json = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(json.error ?? "Eroare salvare opțiuni.");
+      setMsg("Opțiuni raport salvate.");
+      await load({ silent: true });
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Eroare");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const openReportPdf = async (pdfPath: string) => {
+    setErr(null);
+    try {
+      const res = await fetch(
+        `/api/storage/signed-url?bucket=${encodeURIComponent("reports")}&path=${encodeURIComponent(pdfPath)}`,
+      );
+      const j = (await res.json()) as { signedUrl?: string; error?: string };
+      if (!res.ok) throw new Error(j.error ?? "Nu s-a putut deschide PDF-ul.");
+      if (j.signedUrl) window.open(j.signedUrl, "_blank", "noopener,noreferrer");
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Eroare");
+    }
+  };
+
+  const deleteReport = async (reportId: string) => {
+    if (!window.confirm("Ștergeți acest raport din listă și din storage?")) return;
+    setBusy(true);
+    setMsg(null);
+    setErr(null);
+    try {
+      const res = await fetch(`/api/tests/${testId}/reports/${reportId}`, {
+        method: "DELETE",
+        headers: jsonLabHeaders(),
+      });
+      const json = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(json.error ?? "Eroare ștergere.");
+      setMsg("Raport șters.");
+      await load({ silent: true });
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Eroare");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   if (loading || !test) {
     return (
       <div className="text-muted-foreground flex items-center gap-2 p-8 text-sm">
@@ -948,7 +1054,16 @@ export function TestWorkspace({
                   <Label htmlFor={r.key}>
                     {r.label} <span className="text-muted-foreground">({r.unit})</span>
                   </Label>
-                  <Input id={r.key} {...form.register(r.key)} />
+                  {r.valueKind === "text" ? (
+                    <Textarea
+                      id={r.key}
+                      rows={r.key === "pmt_notes_field" ? 3 : 2}
+                      className="min-h-0"
+                      {...form.register(r.key)}
+                    />
+                  ) : (
+                    <Input id={r.key} {...form.register(r.key)} />
+                  )}
                 </div>
               ))}
               <div className="pt-2">
@@ -1794,13 +1909,173 @@ export function TestWorkspace({
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Raport PDF</CardTitle>
-              <CardDescription>Generează PDF prin `report-service`.</CardDescription>
+              <CardDescription>
+                PDF-urile sunt generate de <code className="bg-muted rounded px-1 text-xs">report-service</code>{" "}
+                (șabloane Handlebars + Chromium). Verificați serviciul și previzualizați înainte de a salva varianta
+                finală în listă.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-wrap gap-2">
+              <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void checkReportService()}>
+                {busy ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
+                Verifică report-service
+              </Button>
+              <Button type="button" variant="outline" size="sm" disabled={busy} onClick={openReportPreview}>
+                <ExternalLink className="mr-2 size-4" />
+                Previzualizare raport
+              </Button>
+              <Button type="button" size="sm" disabled={busy} onClick={() => void generatePdf()}>
+                {busy ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
+                Generează PDF (SR EN ISO 22476-5)
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Semnături în raport (per test)</CardTitle>
+              <CardDescription>Text afișat în casetele Întocmit / Verificat din PDF. Folosiți „Salvează semnături”.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              <Button type="button" disabled={busy} onClick={() => void generatePdf()}>
-                {busy ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
-                Generează PDF
+              <div className="grid gap-1.5 sm:grid-cols-2">
+                <div className="grid gap-1.5">
+                  <Label htmlFor="prepared-by">Întocmit</Label>
+                  <Input
+                    id="prepared-by"
+                    value={test?.prepared_by ?? ""}
+                    onChange={(e) => setTest((t) => (t ? { ...t, prepared_by: e.target.value } : t))}
+                    disabled={busy || !test}
+                    placeholder="Nume, funcție"
+                  />
+                </div>
+                <div className="grid gap-1.5">
+                  <Label htmlFor="verified-by">Verificat</Label>
+                  <Input
+                    id="verified-by"
+                    value={test?.verified_by ?? ""}
+                    onChange={(e) => setTest((t) => (t ? { ...t, verified_by: e.target.value } : t))}
+                    disabled={busy || !test}
+                    placeholder="Nume, funcție"
+                  />
+                </div>
+              </div>
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={busy || !test}
+                onClick={async () => {
+                  if (!test) return;
+                  setBusy(true);
+                  setErr(null);
+                  setMsg(null);
+                  try {
+                    const res = await fetch(`/api/tests/${testId}`, {
+                      method: "PATCH",
+                      headers: jsonLabHeaders(),
+                      body: JSON.stringify({
+                        prepared_by: test.prepared_by?.trim() || null,
+                        verified_by: test.verified_by?.trim() || null,
+                      }),
+                    });
+                    const json = (await res.json()) as { error?: string };
+                    if (!res.ok) throw new Error(json.error ?? "Eroare salvare semnături.");
+                    setMsg("Semnături salvate.");
+                    await load({ silent: true });
+                  } catch (e) {
+                    setErr(e instanceof Error ? e.message : "Eroare");
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              >
+                Salvează semnături
               </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Opțiuni raport PDF</CardTitle>
+              <CardDescription>Se aplică la următoarea previzualizare sau generare PDF.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex items-start gap-2">
+                <input
+                  id="specimen-photos-pdf"
+                  type="checkbox"
+                  className="border-input text-primary mt-1 size-4 shrink-0 rounded"
+                  checked={specimenPhotosInPdf}
+                  onChange={(e) => setSpecimenPhotosInPdf(e.target.checked)}
+                  disabled={busy}
+                />
+                <Label htmlFor="specimen-photos-pdf" className="cursor-pointer leading-snug font-normal">
+                  Fotografii probă (înainte / după) în PDF
+                </Label>
+              </div>
+              <Button type="button" variant="secondary" disabled={busy} onClick={() => void saveReportOptions()}>
+                Salvează opțiuni raport
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Rapoarte generate</CardTitle>
+              <CardDescription>PDF-uri salvate în storage pentru acest test.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {reports.length ? (
+                <div className="overflow-auto rounded-md border">
+                  <Table>
+                    <TableHeader className="bg-muted/40">
+                      <TableRow>
+                        <TableHead>Șablon</TableHead>
+                        <TableHead>Versiune</TableHead>
+                        <TableHead>Nr. raport</TableHead>
+                        <TableHead>Generat</TableHead>
+                        <TableHead className="text-right">Acțiuni</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {reports.map((r) => (
+                        <TableRow key={r.id}>
+                          <TableCell className="font-mono text-xs">{r.template_code ?? "—"}</TableCell>
+                          <TableCell className="font-mono text-xs">{r.template_version ?? "—"}</TableCell>
+                          <TableCell className="text-sm">{r.report_number ?? "—"}</TableCell>
+                          <TableCell className="text-muted-foreground text-xs">
+                            {new Date(r.generated_at).toLocaleString("ro-RO")}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex flex-wrap justify-end gap-2">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="h-8"
+                                onClick={() => void openReportPdf(r.pdf_path)}
+                              >
+                                Deschide PDF
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="destructive"
+                                size="sm"
+                                className="h-8"
+                                disabled={busy}
+                                onClick={() => void deleteReport(r.id)}
+                              >
+                                Șterge
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              ) : (
+                <p className="text-muted-foreground text-sm">Nu există rapoarte generate încă.</p>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

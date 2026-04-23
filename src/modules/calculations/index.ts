@@ -19,12 +19,10 @@ export function runCalculationForTestType(
   return fn(measurements, ctx);
 }
 
-export function measurementsRowsToMap(
-  rows: Array<{ key: string; value: number | null }>,
-): MeasurementMap {
+export function measurementsRowsToMap(rows: Array<{ key: string; value: unknown }>): MeasurementMap {
   const m: MeasurementMap = {};
   for (const r of rows) {
-    m[r.key] = r.value;
+    m[r.key] = r.value as number | string | null | undefined;
   }
   return m;
 }

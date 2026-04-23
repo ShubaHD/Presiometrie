@@ -12,7 +12,7 @@ type Params = { params: Promise<{ testId: string }> };
 type RowInput = {
   key: string;
   label: string;
-  value: number | null;
+  value: number | string | null;
   unit?: string | null;
   display_order?: number;
   source?: "manual" | "imported";
@@ -45,15 +45,22 @@ export async function PUT(req: Request, { params }: Params) {
       return NextResponse.json({ error: "Lipsește array-ul rows." }, { status: 400 });
     }
 
-    const normalized = rows.map((r, i) => ({
-      test_id: testId,
-      key: String(r.key).trim(),
-      label: String(r.label).trim(),
-      value: r.value,
-      unit: r.unit ?? null,
-      display_order: r.display_order ?? i * 10,
-      source: r.source ?? "manual",
-    }));
+    const normalized = rows.map((r, i) => {
+      let value: number | string | null = r.value;
+      if (typeof value === "string") {
+        const t = value.trim();
+        value = t.length ? t : null;
+      }
+      return {
+        test_id: testId,
+        key: String(r.key).trim(),
+        label: String(r.label).trim(),
+        value,
+        unit: r.unit ?? null,
+        display_order: r.display_order ?? i * 10,
+        source: r.source ?? "manual",
+      };
+    });
 
     for (const r of normalized) {
       if (!r.key || !r.label) {

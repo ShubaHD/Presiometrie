@@ -79,7 +79,7 @@ export interface TestMeasurement {
   test_id: string;
   key: string;
   label: string;
-  value: number | null;
+  value: number | string | null;
   unit: string | null;
   display_order: number;
   source: MeasurementSource;

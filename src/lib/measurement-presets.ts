@@ -7,11 +7,13 @@ export interface MeasurementPresetRow {
   unit: string;
   /** Explicație scurtă sub câmp (ex. Point load D5731). */
   hint?: string;
+  /** Implicit numeric; câmpuri text nu trebuie forțate la număr la salvare. */
+  valueKind?: "number" | "text";
 }
 
 export const MEASUREMENT_PRESETS: Record<TestType, MeasurementPresetRow[]> = {
   presiometry_program_a: [
-    { key: "pmt_probe_type", label: "Tip presiometru / sondă (opțional)", unit: "—" },
+    { key: "pmt_probe_type", label: "Tip presiometru / sondă (opțional)", unit: "—", valueKind: "text" },
     { key: "pmt_depth_m", label: "Adâncime test (z)", unit: "m" },
     { key: "pmt_packer_diameter_mm", label: "Diametru packer (NX)", unit: "mm" },
     {
@@ -32,10 +34,11 @@ export const MEASUREMENT_PRESETS: Record<TestType, MeasurementPresetRow[]> = {
       key: "pmt_notes_field",
       label: "Observații teren (opțional)",
       unit: "—",
+      valueKind: "text",
     },
   ],
   presiometry_program_b: [
-    { key: "pmt_probe_type", label: "Tip presiometru / sondă (opțional)", unit: "—" },
+    { key: "pmt_probe_type", label: "Tip presiometru / sondă (opțional)", unit: "—", valueKind: "text" },
     { key: "pmt_depth_m", label: "Adâncime test (z)", unit: "m" },
     { key: "pmt_packer_diameter_mm", label: "Diametru packer (NX)", unit: "mm" },
     {
@@ -48,10 +51,10 @@ export const MEASUREMENT_PRESETS: Record<TestType, MeasurementPresetRow[]> = {
     { key: "pmt_probe_diameter_mm", label: "Diametru sondă / cameră (opțional)", unit: "mm" },
     { key: "pmt_initial_volume_cm3", label: "Volum inițial V₀ (opțional)", unit: "cm³" },
     { key: "pmt_temperature_c", label: "Temperatura (opțional)", unit: "°C" },
-    { key: "pmt_notes_field", label: "Observații teren (opțional)", unit: "—" },
+    { key: "pmt_notes_field", label: "Observații teren (opțional)", unit: "—", valueKind: "text" },
   ],
   presiometry_program_c: [
-    { key: "pmt_probe_type", label: "Tip presiometru / sondă (opțional)", unit: "—" },
+    { key: "pmt_probe_type", label: "Tip presiometru / sondă (opțional)", unit: "—", valueKind: "text" },
     { key: "pmt_depth_m", label: "Adâncime test (z)", unit: "m" },
     { key: "pmt_packer_diameter_mm", label: "Diametru packer (NX)", unit: "mm" },
     {
@@ -64,6 +67,6 @@ export const MEASUREMENT_PRESETS: Record<TestType, MeasurementPresetRow[]> = {
     { key: "pmt_probe_diameter_mm", label: "Diametru sondă / cameră (opțional)", unit: "mm" },
     { key: "pmt_initial_volume_cm3", label: "Volum inițial V₀ (opțional)", unit: "cm³" },
     { key: "pmt_temperature_c", label: "Temperatura (opțional)", unit: "°C" },
-    { key: "pmt_notes_field", label: "Observații teren (opțional)", unit: "—" },
+    { key: "pmt_notes_field", label: "Observații teren (opțional)", unit: "—", valueKind: "text" },
   ],
 };

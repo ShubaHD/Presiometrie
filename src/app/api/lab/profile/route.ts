@@ -43,15 +43,25 @@ export async function PATCH(req: Request) {
     if (!auth.ok) return auth.res;
     const { supabase } = auth;
     const body = (await req.json()) as Record<string, unknown>;
-    const patch: Record<string, unknown> = {
+
+    const { data: existing } = await supabase.from("lab_profile").select("*").eq("id", 1).maybeSingle();
+    const row = (existing ?? null) as LabProfile | null;
+
+    const merged: Record<string, unknown> = {
+      id: 1,
+      company_name: row?.company_name ?? null,
+      address: row?.address ?? null,
+      phone: row?.phone ?? null,
+      website: row?.website ?? null,
+      logo_path: row?.logo_path ?? null,
       updated_at: new Date().toISOString(),
     };
 
     const optStr = (k: string, col: string) => {
       if (!(k in body)) return;
       const v = body[k];
-      if (v === null || v === undefined || v === "") patch[col] = null;
-      else patch[col] = String(v).trim() || null;
+      if (v === null || v === undefined || v === "") merged[col] = null;
+      else merged[col] = String(v).trim() || null;
     };
 
     optStr("companyName", "company_name");
@@ -59,7 +69,7 @@ export async function PATCH(req: Request) {
     optStr("phone", "phone");
     optStr("website", "website");
 
-    const { data, error } = await supabase.from("lab_profile").update(patch).eq("id", 1).select("*").single();
+    const { data, error } = await supabase.from("lab_profile").upsert(merged, { onConflict: "id" }).select("*").single();
     if (error) throw error;
     return NextResponse.json(rowToClient(data as LabProfile));
   } catch (e) {
