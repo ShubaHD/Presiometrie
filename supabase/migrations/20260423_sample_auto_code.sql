@@ -38,8 +38,8 @@ $$;
 
 create or replace function public.peek_next_sample_code(
   p_borehole_id uuid,
-  p_day date default null,
-  p_test_type text
+  p_test_type text,
+  p_day date default null
 )
 returns text
 language plpgsql
@@ -70,8 +70,8 @@ $$;
 
 create or replace function public.allocate_next_sample_code(
   p_borehole_id uuid,
-  p_day date default null,
-  p_test_type text
+  p_test_type text,
+  p_day date default null
 )
 returns text
 language plpgsql
@@ -96,6 +96,6 @@ begin
 end;
 $$;
 
-grant execute on function public.peek_next_sample_code(uuid, date, text) to authenticated;
-grant execute on function public.allocate_next_sample_code(uuid, date, text) to authenticated;
+grant execute on function public.peek_next_sample_code(uuid, text, date) to authenticated;
+grant execute on function public.allocate_next_sample_code(uuid, text, date) to authenticated;
 
