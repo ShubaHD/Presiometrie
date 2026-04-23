@@ -69,11 +69,34 @@ export async function POST(req: Request, { params }: Params) {
     if (!auth.ok) return auth.res;
     const { supabase } = auth;
     const { testId } = await params;
-    const baseUrl = normalizeReportServiceBaseUrl(process.env.REPORT_SERVICE_URL);
+    const rawReportUrl = process.env.REPORT_SERVICE_URL;
+    const baseUrl = normalizeReportServiceBaseUrl(rawReportUrl);
     const secret = normalizeReportServiceSecret(process.env.REPORT_SERVICE_SECRET);
-    if (!baseUrl || !secret) {
+    const rawUrlTrim = String(rawReportUrl ?? "").trim();
+    if (!secret && !rawUrlTrim) {
       return NextResponse.json(
         { error: "Configurați REPORT_SERVICE_URL și REPORT_SERVICE_SECRET." },
+        { status: 503 },
+      );
+    }
+    if (!secret) {
+      return NextResponse.json(
+        { error: "Configurați REPORT_SERVICE_SECRET (același ca pe report-service / Railway)." },
+        { status: 503 },
+      );
+    }
+    if (!baseUrl) {
+      if (!rawUrlTrim) {
+        return NextResponse.json(
+          { error: "Configurați REPORT_SERVICE_URL (URL public https://… către report-service, ex. Railway)." },
+          { status: 503 },
+        );
+      }
+      return NextResponse.json(
+        {
+          error:
+            "REPORT_SERVICE_URL nu poate fi interpretat ca URL valid. În Vercel: copiați din Railway doar baza https://….up.railway.app (fără spații, fără ghilimele, fără text în plus). Salvați și Redeploy.",
+        },
         { status: 503 },
       );
     }

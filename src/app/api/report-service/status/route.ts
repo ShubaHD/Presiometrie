@@ -16,19 +16,54 @@ export async function GET() {
   const auth = await requireAuth();
   if (!auth.ok) return auth.res;
 
-  const baseUrl = normalizeReportServiceBaseUrl(process.env.REPORT_SERVICE_URL);
+  const rawReportUrl = process.env.REPORT_SERVICE_URL;
+  const rawUrlTrim = String(rawReportUrl ?? "").trim();
+  const baseUrl = normalizeReportServiceBaseUrl(rawReportUrl);
   const secretSet = Boolean(normalizeReportServiceSecret(process.env.REPORT_SERVICE_SECRET));
 
-  if (!baseUrl || !secretSet) {
+  if (!secretSet && !rawUrlTrim) {
     return NextResponse.json({
       ok: false,
       configured: false,
-      reportServiceUrlSet: Boolean(baseUrl),
-      reportServiceSecretSet: secretSet,
+      reportServiceUrlSet: false,
+      reportServiceSecretSet: false,
       deployedOnVercel: isRunningOnVercel(),
       hint: isRunningOnVercel()
         ? "În Vercel → Settings → Environment Variables setați REPORT_SERVICE_URL (URL public https://… către report-service) și REPORT_SERVICE_SECRET, apoi redeploy."
-        : "În web/.env.local setați REPORT_SERVICE_URL (ex. http://localhost:4000) și REPORT_SERVICE_SECRET (același string ca în report-service), apoi reporniți Next.",
+        : "În .env.local setați REPORT_SERVICE_URL (ex. http://127.0.0.1:4000) și REPORT_SERVICE_SECRET (același string ca în report-service), apoi reporniți Next.",
+    });
+  }
+  if (!secretSet) {
+    return NextResponse.json({
+      ok: false,
+      configured: false,
+      reportServiceUrlSet: Boolean(rawUrlTrim),
+      reportServiceSecretSet: false,
+      deployedOnVercel: isRunningOnVercel(),
+      hint: "Setați REPORT_SERVICE_SECRET (identic cu cel din report-service / Railway).",
+    });
+  }
+  if (!baseUrl) {
+    if (!rawUrlTrim) {
+      return NextResponse.json({
+        ok: false,
+        configured: false,
+        reportServiceUrlSet: false,
+        reportServiceSecretSet: true,
+        deployedOnVercel: isRunningOnVercel(),
+        hint: "Setați REPORT_SERVICE_URL (baza publică https://… a report-service).",
+      });
+    }
+    return NextResponse.json({
+      ok: false,
+      configured: true,
+      reportServiceUrlSet: true,
+      reportServiceUrlInvalid: true,
+      reportServiceSecretSet: true,
+      deployedOnVercel: isRunningOnVercel(),
+      hint:
+        "REPORT_SERVICE_URL nu poate fi interpretat ca URL valid. În Vercel: copiați din Railway doar https://….up.railway.app, fără spații sau ghilimele; Redeploy." +
+        vercelReportDurationHint(),
     });
   }
 

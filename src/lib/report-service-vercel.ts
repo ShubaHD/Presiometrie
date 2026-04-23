@@ -6,19 +6,36 @@ export function isRunningOnVercel(): boolean {
 
 const ZW = /[\u200b-\u200d\ufeff]/g;
 
-/** Curăță REPORT_SERVICE_URL din env (Vercel/Railway): spații, zero-width, ghilimele, prefix https lipsă. */
+/**
+ * Curăță REPORT_SERVICE_URL din env: spații/CR/LF, zero-width, ghilimele normale/„smart”,
+ * `https://` dublu, http→https; întoarce `origin` (fără path) sau `""` dacă nu e URL valid.
+ */
 export function normalizeReportServiceBaseUrl(raw: string | undefined | null): string {
   let s = String(raw ?? "")
     .trim()
     .replace(ZW, "");
+  s = s.replace(/\u201c|\u201d/g, '"').replace(/\u2018|\u2019/g, "'");
   if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
     s = s.slice(1, -1).trim().replace(ZW, "");
   }
+  s = s.replace(/\s+/g, "");
   if (!s) return "";
+  while (/^https:\/\/https:\/\//i.test(s)) {
+    s = s.substring(8);
+  }
   if (!/^https?:\/\//i.test(s)) {
     s = `https://${s.replace(/^\/+/, "")}`;
   }
-  return s.replace(/\/+$/, "");
+  if (/^http:\/\//i.test(s)) {
+    s = `https://${s.slice(7)}`;
+  }
+  try {
+    const u = new URL(s);
+    if (!u.hostname) return "";
+    return u.origin;
+  } catch {
+    return "";
+  }
 }
 
 export function normalizeReportServiceSecret(raw: string | undefined | null): string {
@@ -50,7 +67,7 @@ export function vercelInvalidReportUrlMessage(baseUrl: string): string | null {
       return "Pe Vercel, REPORT_SERVICE_URL nu poate fi localhost sau 127.0.0.1. Deploy report-service separat (ex. Railway/Render, vezi report-service/README.md) și în Vercel → Environment Variables setați URL public https://…";
     }
   } catch {
-    return "REPORT_SERVICE_URL nu este un URL valid. Exemplu: https://nume-serviciu.up.railway.app — fără spații la început/sfârșit, fără ghilimele în valoarea din Vercel.";
+    return "REPORT_SERVICE_URL nu este un URL valid. În Vercel: ștergeți variabila și creați-o din nou (fără paste din PDF/Word). Valoare corectă: doar baza din Railway, ex. https://….up.railway.app";
   }
   return null;
 }
