@@ -1,15 +1,37 @@
 <section class="section" style="margin-top: 2em;">
   <h2>Semnături</h2>
-  <table class="data" style="margin-top: 0.75em;">
+  <table class="data" style="margin-top: 0.75em; width: 100%; border-collapse: separate; border-spacing: 0 0;">
     <tbody>
       <tr>
-        <td style="height: 64px; width: 50%; vertical-align: bottom;">
-          Întocmit
-          <div style="margin-top: 8px; font-weight: 600;">{{signatures.preparedBy}}</div>
+        <td style="width: 50%; vertical-align: top; padding: 0 8px 0 0;">
+          <div
+            style="border: 1px solid #222; border-radius: 2px; padding: 10px 12px; min-height: 88px; box-sizing: border-box;"
+          >
+            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+              <span
+                style="display: inline-block; width: 13px; height: 13px; border: 1.5px solid #111; flex-shrink: 0;"
+                aria-hidden="true"
+              ></span>
+              <span style="font-weight: 600;">Întocmit</span>
+            </div>
+            <div style="border-bottom: 1px solid #555; min-height: 22px; margin-bottom: 6px;"></div>
+            <div style="font-size: 0.9em; font-weight: 600;">{{signatures.preparedBy}}</div>
+          </div>
         </td>
-        <td style="height: 64px; width: 50%; vertical-align: bottom;">
-          Verificat
-          <div style="margin-top: 8px; font-weight: 600;">{{signatures.verifiedBy}}</div>
+        <td style="width: 50%; vertical-align: top; padding: 0 0 0 8px;">
+          <div
+            style="border: 1px solid #222; border-radius: 2px; padding: 10px 12px; min-height: 88px; box-sizing: border-box;"
+          >
+            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+              <span
+                style="display: inline-block; width: 13px; height: 13px; border: 1.5px solid #111; flex-shrink: 0;"
+                aria-hidden="true"
+              ></span>
+              <span style="font-weight: 600;">Verificat</span>
+            </div>
+            <div style="border-bottom: 1px solid #555; min-height: 22px; margin-bottom: 6px;"></div>
+            <div style="font-size: 0.9em; font-weight: 600;">{{signatures.verifiedBy}}</div>
+          </div>
         </td>
       </tr>
     </tbody>
