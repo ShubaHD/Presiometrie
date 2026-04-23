@@ -867,7 +867,10 @@ export function TestWorkspace({
     setMsg(null);
     setErr(null);
     try {
-      const res = await fetch(`/api/tests/${testId}/report`, { method: "POST", headers: jsonLabHeaders() });
+      const res = await fetch(`/api/tests/${testId}/report`, {
+        method: "POST",
+        headers: { ...jsonLabHeaders(), "X-ROCA-Report-Sync": "1" },
+      });
       const json = (await res.json()) as { ok?: boolean; error?: string };
       if (!res.ok) throw new Error(json.error ?? "Eroare PDF.");
       setMsg("Raport generat (verificați lista rapoarte).");
