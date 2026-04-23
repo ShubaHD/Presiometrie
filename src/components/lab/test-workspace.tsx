@@ -1,7 +1,7 @@
 "use client";
 
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,6 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { jsonLabHeaders, labUserFetchHeaders } from "@/lib/lab-client-user";
+import { cn } from "@/lib/utils";
 import { useLabLocale } from "@/components/lab/lab-locale-provider";
 import { reportsStorageBucket } from "@/lib/reports-bucket";
 import { MEASUREMENT_PRESETS } from "@/lib/measurement-presets";
@@ -18,7 +19,7 @@ import { parsePresiometryCurvePayload } from "@/lib/presiometry-curve";
 import { validateMeasurementsForTestType } from "@/lib/measurement-schemas";
 import { newTestOptionLabel } from "@/lib/test-type-options";
 import type { ReportRow, TestMeasurement, TestResult, TestRow, TestType } from "@/types/lab";
-import { Crosshair, ExternalLink, Hand, Loader2, MousePointer2 } from "lucide-react";
+import { Crosshair, ExternalLink, Hand, Loader2, MousePointer2, Upload } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { TransformComponent, TransformWrapper } from "react-zoom-pan-pinch";
 import { useForm } from "react-hook-form";
@@ -305,6 +306,8 @@ export function TestWorkspace({
   const [results, setResults] = useState<TestResult[]>([]);
   const [reports, setReports] = useState<ReportRow[]>([]);
   const [specimenPhotosInPdf, setSpecimenPhotosInPdf] = useState(true);
+  const [importFileName, setImportFileName] = useState<string | null>(null);
+  const [importLoading, setImportLoading] = useState(false);
   const { locale: reportLocale } = useLabLocale();
 
   /** `silent`: nu ascunde întreg ecranul (păstrează tab-ul activ); folosit după salvări / calcule. */
@@ -863,6 +866,7 @@ export function TestWorkspace({
 
   const importCurve = async (file: File | null) => {
     if (!file) return;
+    setImportLoading(true);
     setBusy(true);
     setMsg(null);
     setErr(null);
@@ -887,6 +891,7 @@ export function TestWorkspace({
       setErr(e instanceof Error ? e.message : "Eroare");
     } finally {
       setBusy(false);
+      setImportLoading(false);
     }
   };
 
@@ -1130,15 +1135,44 @@ export function TestWorkspace({
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              <div className="grid gap-1.5">
-                <Label htmlFor="import-file">Fișier</Label>
-                <Input
-                  id="import-file"
-                  type="file"
-                  accept=".csv,.txt,.tsv"
-                  disabled={busy}
-                  onChange={(e) => void importCurve(e.target.files?.[0] ?? null)}
-                />
+              <div className="space-y-1.5">
+                <Label>Fișier (CSV, TXT, TSV)</Label>
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <input
+                    id="import-file"
+                    type="file"
+                    accept=".csv,.txt,.tsv"
+                    className="sr-only"
+                    disabled={busy}
+                    aria-label="Alege un fișier de importat pentru seria p–R"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0] ?? null;
+                      setImportFileName(f?.name ?? null);
+                      void importCurve(f);
+                    }}
+                  />
+                  <label
+                    htmlFor="import-file"
+                    className={cn(
+                      buttonVariants({ variant: "default", size: "default" }),
+                      "cursor-pointer gap-1.5 disabled:pointer-events-none disabled:opacity-50",
+                    )}
+                  >
+                    {importLoading ? (
+                      <Loader2 className="size-4 shrink-0 animate-spin" />
+                    ) : (
+                      <Upload className="size-4 shrink-0" />
+                    )}
+                    {importLoading ? "Se importă…" : "Alege fișier"}
+                  </label>
+                  {importFileName ? (
+                    <span className="text-muted-foreground min-w-0 max-w-full truncate text-sm" title={importFileName}>
+                      {importFileName}
+                    </span>
+                  ) : (
+                    <span className="text-muted-foreground text-sm">Niciun fișier ales</span>
+                  )}
+                </div>
               </div>
               <Separator />
               <div className="space-y-2">

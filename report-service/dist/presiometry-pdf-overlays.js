@@ -456,8 +456,26 @@ export function buildPresiometryPdfOverlays(opts) {
         const stroke = strokes[ti % strokes.length];
         ti++;
         const mpa = 1 / 1000;
-        linesPr.push({ x1: e.x1, y1: e.p1 * mpa, x2: e.x2, y2: e.p2 * mpa, stroke, dash: "5 4" });
-        linesPdr.push({ x1: e.x1 - r0, y1: e.p1 * mpa, x2: e.x2 - r0, y2: e.p2 * mpa, stroke, dash: "5 4" });
+        const sym = String(seg.symbol ?? "").trim();
+        const linePr = {
+            x1: e.x1,
+            y1: e.p1 * mpa,
+            x2: e.x2,
+            y2: e.p2 * mpa,
+            stroke,
+            dash: "5 4",
+            label: sym || undefined,
+        };
+        linesPr.push(linePr);
+        linesPdr.push({
+            x1: e.x1 - r0,
+            y1: e.p1 * mpa,
+            x2: e.x2 - r0,
+            y2: e.p2 * mpa,
+            stroke,
+            dash: "5 4",
+            label: sym || undefined,
+        });
     };
     if (segs.load1) {
         pushBand(segs.load1, "L1");

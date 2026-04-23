@@ -1,13 +1,14 @@
 "use client";
 
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { AccountPasswordCard } from "@/components/lab/account-password-card";
 import { jsonLabHeaders, labUserFetchHeaders } from "@/lib/lab-client-user";
-import { Loader2 } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { Loader2, Upload } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 export function LabSettingsPageClient() {
@@ -19,6 +20,8 @@ export function LabSettingsPageClient() {
   const [logoPreviewUrl, setLogoPreviewUrl] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [logoPickName, setLogoPickName] = useState<string | null>(null);
+  const [logoLoading, setLogoLoading] = useState(false);
 
   const load = useCallback(async () => {
     setMsg(null);
@@ -97,6 +100,7 @@ export function LabSettingsPageClient() {
   const onLogo = async (list: FileList | null) => {
     const file = list?.[0];
     if (!file) return;
+    setLogoLoading(true);
     setBusy(true);
     setMsg(null);
     try {
@@ -115,6 +119,7 @@ export function LabSettingsPageClient() {
       setMsg(e instanceof Error ? e.message : "Eroare");
     } finally {
       setBusy(false);
+      setLogoLoading(false);
     }
   };
 
@@ -126,6 +131,7 @@ export function LabSettingsPageClient() {
       const j = await res.json();
       if (!res.ok) throw new Error(j.error ?? "Eroare");
       setLogoPath(null);
+      setLogoPickName(null);
       setMsg("Logo eliminat.");
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "Eroare");
@@ -214,14 +220,39 @@ export function LabSettingsPageClient() {
           ) : (
             <p className="text-muted-foreground text-sm">Niciun logo încărcat.</p>
           )}
-          <div className="flex flex-wrap gap-2">
-            <Input
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <input
+              id="lab-logo-file"
               type="file"
               accept="image/*"
+              className="sr-only"
               disabled={busy}
-              className="max-w-xs cursor-pointer"
-              onChange={(e) => void onLogo(e.target.files)}
+              aria-label="Alege o imagine de logo (PNG, JPEG, SVG)"
+              onChange={(e) => {
+                const list = e.target.files;
+                setLogoPickName(list?.[0]?.name ?? null);
+                void onLogo(list);
+              }}
             />
+            <label
+              htmlFor="lab-logo-file"
+              className={cn(
+                buttonVariants({ variant: "default", size: "default" }),
+                "cursor-pointer gap-1.5 disabled:pointer-events-none disabled:opacity-50",
+              )}
+            >
+              {logoLoading ? (
+                <Loader2 className="size-4 shrink-0 animate-spin" />
+              ) : (
+                <Upload className="size-4 shrink-0" />
+              )}
+              {logoLoading ? "Se încarcă…" : "Alege logo"}
+            </label>
+            {logoPickName ? (
+              <span className="text-muted-foreground min-w-0 max-w-full truncate text-sm" title={logoPickName}>
+                {logoPickName}
+              </span>
+            ) : null}
             {logoPath ? (
               <Button type="button" variant="outline" disabled={busy} onClick={() => void onRemoveLogo()}>
                 Elimină logo

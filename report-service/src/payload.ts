@@ -17,11 +17,7 @@ import { parsePointLoadReportMetadata } from "./point-load-report-metadata.js";
 import { parseUnconfinedSoilCurvePayload, stressStrainSeriesKpa } from "./unconfined-soil-curve.js";
 import { parseUnconfinedSoilReportMetadata } from "./unconfined-soil-report-metadata.js";
 import { parseUcsReportMetadata } from "./ucs-report-metadata.js";
-import {
-  buildPresiometryPdfOverlays,
-  detectLoopsByPressure,
-  extractPvPointsPdf,
-} from "./presiometry-pdf-overlays.js";
+import { buildPresiometryPdfOverlays } from "./presiometry-pdf-overlays.js";
 import {
   formatTestDateForReport,
   pmtMeasurementLabelForLocale,
@@ -228,7 +224,15 @@ function svgLineChart(opts: {
   points: Array<{ x: number; y: number }>;
   padAxesRatio?: number;
   bands?: Array<{ x1: number; x2: number; fill: string; opacity?: number }>;
-  segmentLines?: Array<{ x1: number; y1: number; x2: number; y2: number; stroke: string; dash?: string }>;
+  segmentLines?: Array<{
+    x1: number;
+    y1: number;
+    x2: number;
+    y2: number;
+    stroke: string;
+    dash?: string;
+    label?: string;
+  }>;
   markers?: Array<{ x: number; y: number; label?: string; fill?: string }>;
 }): string | null {
   const width = opts.width ?? 820;
@@ -330,6 +334,28 @@ function svgLineChart(opts: {
     })
     .join("\n");
 
+  const segLabelSvg = (opts.segmentLines ?? [])
+    .map((s) => {
+      const lab = (s.label ?? "").trim();
+      if (!lab) return "";
+      const x1 = sx(s.x1);
+      const y1 = sy(s.y1);
+      const x2 = sx(s.x2);
+      const y2 = sy(s.y2);
+      const cx = (x1 + x2) / 2;
+      const cy = (y1 + y2) / 2;
+      const dxs = x2 - x1;
+      const dys = y2 - y1;
+      const len = Math.hypot(dxs, dys) || 1;
+      const off = 12;
+      const tx = cx + (-dys / len) * off;
+      const ty = cy + (dxs / len) * off;
+      return `<text class="seg" x="${tx.toFixed(1)}" y="${ty.toFixed(1)}" text-anchor="middle" dominant-baseline="middle" stroke="#fff" stroke-width="2.8" paint-order="stroke fill">${escXml(
+        lab,
+      )}</text>`;
+    })
+    .join("\n");
+
   const markSvg = (opts.markers ?? [])
     .filter((m) => Number.isFinite(m.x) && Number.isFinite(m.y))
     .map((m) => {
@@ -356,6 +382,7 @@ function svgLineChart(opts: {
   <style>
     .t { font: 12px Arial, sans-serif; fill: #222; }
     .m { font: 10px Arial, sans-serif; fill: #444; }
+    .seg { font: 11px Arial, sans-serif; font-weight: 600; fill: #1a1a1a; }
   </style>
   <text class="t" x="${padL}" y="16">${escXml(opts.title)}</text>
   ${gridTicksSvg}
@@ -364,6 +391,7 @@ function svgLineChart(opts: {
   <path d="${path}" fill="none" stroke="#2a6fdb" stroke-width="1.5" />
   ${segSvg}
   ${markSvg}
+  ${segLabelSvg}
   <text class="m" x="${padL + innerW / 2}" y="${height - 10}" text-anchor="middle">${escXml(opts.xLabel)}</text>
   <text class="m" x="14" y="${padT + innerH / 2}" transform="rotate(-90 14 ${padT + innerH / 2})" text-anchor="middle">${escXml(opts.yLabel)}</text>
 </svg>`;
@@ -3135,49 +3163,6 @@ export async function buildPresiometryPayload(
         })
       : null;
 
-  type PdfChartMarker = { x: number; y: number; label?: string; fill?: string };
-  const pvForMarkers = extractPvPointsPdf(curveObj);
-  const v0pr = pvForMarkers[0]?.x ?? 0;
-  const loopMarkersPr: PdfChartMarker[] = [];
-  const loopMarkersPdr: PdfChartMarker[] = [];
-  const yMpa = (pk: number) => pk / 1000;
-  if (pvForMarkers.length >= 2) {
-    loopMarkersPr.push({ x: pvForMarkers[0]!.x, y: yMpa(pvForMarkers[0]!.p_kpa), fill: "#1e8449" });
-    const lastPv = pvForMarkers[pvForMarkers.length - 1]!;
-    loopMarkersPr.push({ x: lastPv.x, y: yMpa(lastPv.p_kpa), fill: "#7b241c" });
-    loopMarkersPdr.push({
-      x: xKind === "radius_mm" ? pvForMarkers[0]!.x - seatingR0 : pvForMarkers[0]!.x - v0pr,
-      y: yMpa(pvForMarkers[0]!.p_kpa),
-      fill: "#1e8449",
-    });
-    loopMarkersPdr.push({
-      x: xKind === "radius_mm" ? lastPv.x - seatingR0 : lastPv.x - v0pr,
-      y: yMpa(lastPv.p_kpa),
-      fill: "#7b241c",
-    });
-    const loopsM = detectLoopsByPressure(pvForMarkers);
-    loopsM.slice(0, 10).forEach((w, idx) => {
-      const i = idx + 1;
-      const peak = pvForMarkers[w.peakIndex];
-      const valley = pvForMarkers[w.valleyIndex];
-      const nx = pvForMarkers[w.nextPeakIndex];
-      const pushPair = (xPr: number, y: number, label: string, fill: string) => {
-        loopMarkersPr.push({ x: xPr, y, label, fill });
-        loopMarkersPdr.push({
-          x: xKind === "radius_mm" ? xPr - seatingR0 : xPr - v0pr,
-          y,
-          label,
-          fill,
-        });
-      };
-      if (peak) pushPair(peak.x, yMpa(peak.p_kpa), `Vf${i}`, "#ca6f1e");
-      if (valley) pushPair(valley.x, yMpa(valley.p_kpa), `Vl${i}`, "#6c3483");
-      if (nx) pushPair(nx.x, yMpa(nx.p_kpa), `Vr${i}`, "#ca6f1e");
-    });
-  }
-  const chartMarkersPr = loopMarkersPr.length ? loopMarkersPr : undefined;
-  const chartMarkersPdr = loopMarkersPdr.length ? loopMarkersPdr : undefined;
-
   const svgPR =
     curvePts.length >= 2
       ? svgLineChart({
@@ -3188,7 +3173,6 @@ export async function buildPresiometryPayload(
           padAxesRatio: tt !== "presiometry_program_c" ? 0.06 : undefined,
           bands: overlaysPdf?.bandsPr,
           segmentLines: overlaysPdf?.linesPr,
-          markers: chartMarkersPr,
         })
       : null;
 
@@ -3205,7 +3189,6 @@ export async function buildPresiometryPayload(
           padAxesRatio: tt !== "presiometry_program_c" ? 0.06 : undefined,
           bands: overlaysPdf?.bandsPdr,
           segmentLines: overlaysPdf?.linesPdr,
-          markers: chartMarkersPdr,
         })
       : null;
 

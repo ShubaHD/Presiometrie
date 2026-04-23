@@ -489,7 +489,16 @@ export function extractPvPointsPdf(curve: {
   return [...pts].sort((a, b) => (a.t_s ?? 0) - (b.t_s ?? 0));
 }
 
-export type SvgOverlayLine = { x1: number; y1: number; x2: number; y2: number; stroke: string; dash?: string };
+export type SvgOverlayLine = {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  stroke: string;
+  dash?: string;
+  /** GL1, GU1, GR1, GUR1, … — afișat lângă tangenta de regresie pe PDF. */
+  label?: string;
+};
 export type SvgOverlayBand = { x1: number; x2: number; fill: string; opacity?: number };
 
 function xExtentPdf(pv: PVPoint[], seg: PresiometryRegressionSegment | null): [number, number] | null {
@@ -559,8 +568,26 @@ export function buildPresiometryPdfOverlays(opts: {
     const stroke = strokes[ti % strokes.length]!;
     ti++;
     const mpa = 1 / 1000;
-    linesPr.push({ x1: e.x1, y1: e.p1 * mpa, x2: e.x2, y2: e.p2 * mpa, stroke, dash: "5 4" });
-    linesPdr.push({ x1: e.x1 - r0, y1: e.p1 * mpa, x2: e.x2 - r0, y2: e.p2 * mpa, stroke, dash: "5 4" });
+    const sym = String(seg.symbol ?? "").trim();
+    const linePr: SvgOverlayLine = {
+      x1: e.x1,
+      y1: e.p1 * mpa,
+      x2: e.x2,
+      y2: e.p2 * mpa,
+      stroke,
+      dash: "5 4",
+      label: sym || undefined,
+    };
+    linesPr.push(linePr);
+    linesPdr.push({
+      x1: e.x1 - r0,
+      y1: e.p1 * mpa,
+      x2: e.x2 - r0,
+      y2: e.p2 * mpa,
+      stroke,
+      dash: "5 4",
+      label: sym || undefined,
+    });
   };
 
   if (segs.load1) {
