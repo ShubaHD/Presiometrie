@@ -169,8 +169,6 @@ export function pmtTableLabelForLocale(key, labelRo, locale) {
         [/^pmt_b_menard_em_gl1_mpa$/, "Em (Menard, GL1) — Menard modulus from first loading (GL1), ν=0.33 (drained)"],
         [/^pmt_a_load1_r2$/, "GL1: R² — fit quality of linear regression on GL1"],
         [/^pmt_b_load1_r2$/, "GL1: R² — fit quality of linear regression on GL1"],
-        [/^pmt_a_load1_n$/, "GL1: N points — number of points in GL1 regression"],
-        [/^pmt_b_load1_n$/, "GL1: N points — number of points in GL1 regression"],
         [/^pmt_pmin_mpa$/, "Minimum pressure in series p_min"],
         [/^pmt_pmax_mpa$/, "Maximum pressure in series p_max"],
         [/^pmt_loops_detected$/, "Detected loops (auto)"],

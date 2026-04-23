@@ -200,7 +200,13 @@ const PRESIOMETRY_OMIT_MEASUREMENT_KEYS = new Set([
   "pmt_depth_m",
 ]);
 
-const PRESIOMETRY_OMIT_RESULT_KEYS = new Set(["pmt_pmin_mpa", "pmt_loops_detected", "pmt_depth_m"]);
+const PRESIOMETRY_OMIT_RESULT_KEYS = new Set([
+  "pmt_pmin_mpa",
+  "pmt_loops_detected",
+  "pmt_depth_m",
+  "pmt_a_load1_n",
+  "pmt_b_load1_n",
+]);
 
 function fmtNum(v: unknown, decimals = 3): string {
   if (v === null || v === undefined) return "—";
@@ -2996,7 +3002,7 @@ export async function buildPresiometryPayload(
       `
       id, test_type, status, operator_name, device_name, prepared_by, verified_by, test_date, formula_version, notes,
       created_at, updated_at, created_by, updated_by,
-      presiometry_report_metadata_json, report_options_json, presiometry_curve_json,
+      presiometry_settings_json, presiometry_report_metadata_json, report_options_json, presiometry_curve_json,
       sample:samples (
         id, code, depth_from, depth_to, lithology, notes,
         borehole:boreholes (
