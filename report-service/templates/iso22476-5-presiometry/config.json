@@ -1,6 +1,6 @@
 {
   "templateCode": "iso22476-5-presiometry",
-  "version": "0.1.2",
+  "version": "0.1.4",
   "sections": [
     "header",
     "sampleInfo",

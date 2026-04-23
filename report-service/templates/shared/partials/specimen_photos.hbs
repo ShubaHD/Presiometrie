@@ -1,20 +1,20 @@
 <section class="specimen-photos-section">
-  <h2>Documentare probă</h2>
-  <p class="muted">Raport §8.1 k: descriere / schiță / fotografie a probei care indică tipul de rupere.</p>
+  <h2>{{#if i18n.h2_specimen}}{{i18n.h2_specimen}}{{else}}Documentare probă{{/if}}</h2>
+  <p class="muted">{{#if i18n.specimen_note}}{{i18n.specimen_note}}{{else}}Raport §8.1 k: descriere / schiță / fotografie a probei care indică tipul de rupere.{{/if}}</p>
   <div class="specimen-photo-grid">
     {{#if photos.beforeSrc}}
     <figure class="specimen-figure">
-      <figcaption>Înainte de încercare</figcaption>
+      <figcaption>{{#if i18n.specimen_before}}{{i18n.specimen_before}}{{else}}Înainte de încercare{{/if}}</figcaption>
       <div class="specimen-img-wrap">
-        <img src="{{{photos.beforeSrc}}}" alt="Probă înainte de încercare" />
+        <img src="{{{photos.beforeSrc}}}" alt="" />
       </div>
     </figure>
     {{/if}}
     {{#if photos.afterSrc}}
     <figure class="specimen-figure">
-      <figcaption>După încercare</figcaption>
+      <figcaption>{{#if i18n.specimen_after}}{{i18n.specimen_after}}{{else}}După încercare{{/if}}</figcaption>
       <div class="specimen-img-wrap">
-        <img src="{{{photos.afterSrc}}}" alt="Probă după încercare" />
+        <img src="{{{photos.afterSrc}}}" alt="" />
       </div>
     </figure>
     {{/if}}

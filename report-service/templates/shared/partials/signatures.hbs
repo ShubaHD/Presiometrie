@@ -12,7 +12,7 @@
                 style="display: inline-block; width: 13px; height: 13px; border: 1.5px solid #111; flex-shrink: 0;"
                 aria-hidden="true"
               ></span>
-              <span style="font-weight: 600;">Întocmit</span>
+              <span style="font-weight: 600;">{{#if i18n.sig_prepared}}{{i18n.sig_prepared}}{{else}}Întocmit{{/if}}</span>
             </div>
             <div style="border-bottom: 1px solid #555; min-height: 22px; margin-bottom: 6px;"></div>
             <div style="font-size: 0.9em; font-weight: 600;">{{signatures.preparedBy}}</div>
@@ -27,7 +27,7 @@
                 style="display: inline-block; width: 13px; height: 13px; border: 1.5px solid #111; flex-shrink: 0;"
                 aria-hidden="true"
               ></span>
-              <span style="font-weight: 600;">Verificat</span>
+              <span style="font-weight: 600;">{{#if i18n.sig_verified}}{{i18n.sig_verified}}{{else}}Verificat{{/if}}</span>
             </div>
             <div style="border-bottom: 1px solid #555; min-height: 22px; margin-bottom: 6px;"></div>
             <div style="font-size: 0.9em; font-weight: 600;">{{signatures.verifiedBy}}</div>

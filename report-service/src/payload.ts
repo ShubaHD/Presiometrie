@@ -22,6 +22,15 @@ import {
   detectLoopsByPressure,
   extractPvPointsPdf,
 } from "./presiometry-pdf-overlays.js";
+import {
+  formatTestDateForReport,
+  pmtMeasurementLabelForLocale,
+  pmtTableLabelForLocale,
+  presiometryPageTitle,
+  presiometryReportMainTitle,
+  presiometryStaticCopy,
+  type ReportLocale,
+} from "./presiometry-i18n.js";
 
 export interface ReportPayload {
   generatedAt: string;
@@ -168,6 +177,9 @@ export interface ReportPayload {
     preparedBy: string;
     verifiedBy: string;
   };
+  /** Presiometrie: texte traduse pentru șablon (RO/EN). */
+  i18n?: Record<string, string>;
+  htmlLang?: string;
 }
 
 /** Aliniat la `server.ts` — enum Postgres / copieri pot varia ca string. */
@@ -254,14 +266,41 @@ function svgLineChart(opts: {
     dy = maxY - minY;
   }
 
-  const padL = 52;
-  const padR = 16;
+  const padL = 58;
+  const padR = 12;
   const padT = 26;
-  const padB = 34;
+  const padB = 46;
   const innerW = width - padL - padR;
   const innerH = height - padT - padB;
   const sx = (x: number) => padL + ((x - minX) / dx) * innerW;
   const sy = (y: number) => padT + (1 - (y - minY) / dy) * innerH;
+
+  const linearTicks = (lo: number, hi: number, n: number): number[] => {
+    if (!(hi > lo) || n < 2) return [lo, hi];
+    const out: number[] = [];
+    for (let i = 0; i < n; i++) out.push(lo + ((hi - lo) * i) / (n - 1));
+    return out;
+  };
+  const fmtTick = (v: number): string => {
+    const a = Math.abs(v);
+    if (a >= 100) return v.toFixed(0);
+    if (a >= 10) return v.toFixed(1);
+    return v.toFixed(2);
+  };
+  const xticks = linearTicks(minX, maxX, 6);
+  const yticks = linearTicks(minY, maxY, 5);
+  const gridTicksSvg = [
+    ...xticks.map((xv) => {
+      const gx = sx(xv);
+      return `<line x1="${gx.toFixed(2)}" y1="${padT}" x2="${gx.toFixed(2)}" y2="${padT + innerH}" stroke="#e8e8e8" stroke-width="1"/>
+<text class="m" x="${gx.toFixed(2)}" y="${padT + innerH + 14}" text-anchor="middle">${escXml(fmtTick(xv))}</text>`;
+    }),
+    ...yticks.map((yv) => {
+      const gy = sy(yv);
+      return `<line x1="${padL}" y1="${gy.toFixed(2)}" x2="${padL + innerW}" y2="${gy.toFixed(2)}" stroke="#e8e8e8" stroke-width="1"/>
+<text class="m" x="${(padL - 5).toFixed(1)}" y="${(gy + 4).toFixed(1)}" text-anchor="end">${escXml(fmtTick(yv))}</text>`;
+    }),
+  ].join("\n");
 
   const path = pts
     .map((p, i) => `${i === 0 ? "M" : "L"} ${sx(p.x).toFixed(2)} ${sy(p.y).toFixed(2)}`)
@@ -313,6 +352,7 @@ function svgLineChart(opts: {
     .m { font: 10px Arial, sans-serif; fill: #444; }
   </style>
   <text class="t" x="${padL}" y="16">${escXml(opts.title)}</text>
+  ${gridTicksSvg}
   ${axis}
   ${bandsSvg}
   <path d="${path}" fill="none" stroke="#2a6fdb" stroke-width="1.5" />
@@ -660,9 +700,18 @@ function operatorEquipmentLine(op: string | null, dev: string | null): string {
 
 function formatTestDateRo(raw: string | null): string {
   if (!raw || !String(raw).trim()) return "—";
-  const s = String(raw).slice(0, 10);
-  const d = new Date(`${s}T12:00:00`);
-  if (Number.isNaN(d.getTime())) return String(raw);
+  const t = String(raw).trim();
+  let ymd = t.slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) {
+    const m = t.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{4})/);
+    if (m) {
+      const dd = m[1]!.padStart(2, "0");
+      const mm = m[2]!.padStart(2, "0");
+      ymd = `${m[3]!}-${mm}-${dd}`;
+    }
+  }
+  const d = new Date(`${ymd}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return t;
   return d.toLocaleDateString("ro-RO", { day: "numeric", month: "long", year: "numeric" });
 }
 
@@ -2939,6 +2988,7 @@ export async function buildPresiometryPayload(
   templateCode: string,
   templateVersion: string,
   sections: string[],
+  options?: { locale?: ReportLocale },
 ): Promise<ReportPayload> {
   const { data: test, error: tErr } = await supabase
     .from("tests")
@@ -2963,6 +3013,9 @@ export async function buildPresiometryPayload(
   if (!test || (tt !== "presiometry_program_a" && tt !== "presiometry_program_b" && tt !== "presiometry_program_c")) {
     throw new Error("Doar testele presiometrie Program A/B/C sunt suportate.");
   }
+
+  const loc: ReportLocale = options?.locale === "en" ? "en" : "ro";
+  const tr = presiometryStaticCopy(loc);
 
   const rawSample = (test as { sample?: unknown }).sample;
   if (!rawSample || Array.isArray(rawSample)) throw new Error("Date probă lipsă sau invalide.");
@@ -3028,8 +3081,12 @@ export async function buildPresiometryPayload(
         >)
       : {};
 
-  const holeNo = typeof rawMeta.hole_no === "string" ? rawMeta.hole_no.trim() : "";
   const startTime = typeof rawMeta.start_time === "string" ? rawMeta.start_time.trim() : "";
+  const importDateIsoRaw =
+    typeof rawMeta.import_test_date_iso === "string" ? String(rawMeta.import_test_date_iso).trim() : "";
+  const importDateIso = /^\d{4}-\d{2}-\d{2}/.test(importDateIsoRaw) ? importDateIsoRaw.slice(0, 10) : "";
+  const testDateSource =
+    (test as { test_date?: string | null }).test_date?.toString().trim() || (importDateIso ? importDateIso : null);
 
   const curveRaw = (test as { presiometry_curve_json?: unknown }).presiometry_curve_json;
   const curveObj =
@@ -3118,9 +3175,9 @@ export async function buildPresiometryPayload(
   const svgPR =
     curvePts.length >= 2
       ? svgLineChart({
-          title: xKind === "radius_mm" ? "Curba p–R" : "Curba p–V",
-          xLabel: xKind === "radius_mm" ? "R (mm)" : "V (cm³)",
-          yLabel: "p (MPa)",
+          title: xKind === "radius_mm" ? tr.chart_pR : tr.chart_pV,
+          xLabel: xKind === "radius_mm" ? tr.axis_R_mm : tr.axis_V_cm3,
+          yLabel: tr.axis_p_mpa,
           points: curvePts.map((p) => ({ x: p.x, y: p.p_kpa / 1000 })),
           padAxesRatio: tt !== "presiometry_program_c" ? 0.06 : undefined,
           bands: overlaysPdf?.bandsPr,
@@ -3132,9 +3189,9 @@ export async function buildPresiometryPayload(
   const svgPdR =
     curvePts.length >= 2
       ? svgLineChart({
-          title: xKind === "radius_mm" ? "Curba p–δ" : "Curba p–ΔV",
-          xLabel: xKind === "radius_mm" ? "δ (mm)" : "ΔV (cm³)",
-          yLabel: "p (MPa)",
+          title: xKind === "radius_mm" ? tr.chart_p_delta : tr.chart_p_dV,
+          xLabel: xKind === "radius_mm" ? tr.axis_delta_mm : tr.axis_dV_cm3,
+          yLabel: tr.axis_p_mpa,
           points: curvePts.map((p) => ({
             x: xKind === "radius_mm" ? p.r_mm - seatingR0 : p.v_cm3 - (curvePts[0]?.v_cm3 ?? 0),
             y: p.p_kpa / 1000,
@@ -3146,14 +3203,13 @@ export async function buildPresiometryPayload(
         })
       : null;
 
-  const programLabel = tt === "presiometry_program_a" ? "Program A" : tt === "presiometry_program_b" ? "Program B" : "Program C";
-  const reportMainTitle = `Încercare presiometrică — ${programLabel}`;
-  const reportNormRef = "SR EN ISO 22476-5";
-  const reportPageTitle = `Presiometrie (${programLabel})`;
-  const conformanceStatement = "Încercarea a fost efectuată conform SR EN ISO 22476-5.";
+  const reportMainTitle = presiometryReportMainTitle(tt, loc);
+  const reportNormRef = tr.norm;
+  const reportPageTitle = presiometryPageTitle(tt, loc);
+  const conformanceStatement = tr.conf_statement;
 
   const testConditions: ReportPayload["testConditions"] = {
-    testDateDisplay: formatTestDateRo((test as { test_date?: string | null }).test_date ?? null),
+    testDateDisplay: formatTestDateForReport(testDateSource, loc),
     operatorEquipment: "",
     loadingRate: "—",
     timeToFailure: "—",
@@ -3216,14 +3272,22 @@ export async function buildPresiometryPayload(
       updated_by: (test as { updated_by?: string | null }).updated_by ?? null,
     },
     measurements: (() => {
+      /** Rânduri refăcute dedesubt (o singură apariție pentru packer / axă / oră). */
+      const PRESIOMETRY_ROW_KEYS_PREPENDED = new Set(["pmt_series_axis", "pmt_packer_diameter_mm", "pmt_start_time"]);
+
       const base = (measurements ?? [])
         .filter((m) => !PRESIOMETRY_OMIT_MEASUREMENT_KEYS.has(String((m as { key?: unknown }).key ?? "")))
-        .map((m) => ({
-          label: String((m as { label?: unknown }).label ?? (m as { key?: unknown }).key ?? ""),
-          key: String((m as { key?: unknown }).key ?? ""),
-          value: fmtNum((m as { value?: unknown }).value, 3),
-          unit: String((m as { unit?: unknown }).unit ?? ""),
-        }));
+        .filter((m) => !PRESIOMETRY_ROW_KEYS_PREPENDED.has(String((m as { key?: unknown }).key ?? "")))
+        .map((m) => {
+          const key = String((m as { key?: unknown }).key ?? "");
+          const labelRo = String((m as { label?: unknown }).label ?? key ?? "");
+          return {
+            label: pmtMeasurementLabelForLocale(key, labelRo, loc),
+            key,
+            value: fmtNum((m as { value?: unknown }).value, 3),
+            unit: String((m as { unit?: unknown }).unit ?? ""),
+          };
+        });
 
       const packer = (measurements ?? []).find((m) => (m as { key?: unknown }).key === "pmt_packer_diameter_mm") as
         | { value?: unknown }
@@ -3232,16 +3296,14 @@ export async function buildPresiometryPayload(
       const packerNum = packerVal == null ? NaN : Number(packerVal);
       const hasPacker = Number.isFinite(packerNum) && packerNum > 0;
 
-      // The curve is stored as JSON on `tests`; we don't read it here yet.
-      // For Elast Logger workflows we explicitly note the axis in the report title + measurements.
-      const axisNote = { label: "Seria importată", key: "pmt_series_axis", value: "p–R (R în mm)", unit: "" };
+      const axisValue = xKind === "radius_mm" ? tr.series_axis_pr : tr.series_axis_pv;
+      const axisNote = { label: tr.series_imported, key: "pmt_series_axis", value: axisValue, unit: "" };
 
       const out = [...base];
-      if (holeNo) out.unshift({ label: "Număr foraj (din CSV)", key: "pmt_hole_no", value: holeNo, unit: "" });
-      if (startTime) out.unshift({ label: "Ora start (din CSV)", key: "pmt_start_time", value: startTime, unit: "" });
+      if (startTime) out.unshift({ label: tr.start_time_csv, key: "pmt_start_time", value: startTime, unit: "" });
       if (hasPacker) {
         out.unshift({
-          label: "Diametru packer (NX)",
+          label: tr.packer_diameter,
           key: "pmt_packer_diameter_mm",
           value: fmtNum(packerNum, 0),
           unit: "mm",
@@ -3252,12 +3314,16 @@ export async function buildPresiometryPayload(
     })(),
     results: (results ?? [])
       .filter((r) => !PRESIOMETRY_OMIT_RESULT_KEYS.has(String((r as { key?: unknown }).key ?? "")))
-      .map((r) => ({
-        label: String((r as { label?: unknown }).label ?? (r as { key?: unknown }).key ?? ""),
-        key: String((r as { key?: unknown }).key ?? ""),
-        value: fmtNum((r as { value?: unknown }).value, (r as { decimals?: unknown }).decimals as number | undefined),
-        unit: String((r as { unit?: unknown }).unit ?? ""),
-      })),
+      .map((r) => {
+        const key = String((r as { key?: unknown }).key ?? "");
+        const labelRo = String((r as { label?: unknown }).label ?? key ?? "");
+        return {
+          label: pmtTableLabelForLocale(key, labelRo, loc),
+          key,
+          value: fmtNum((r as { value?: unknown }).value, (r as { decimals?: unknown }).decimals as number | undefined),
+          unit: String((r as { unit?: unknown }).unit ?? ""),
+        };
+      }),
     show,
     charts: {
       ...(svgPR ? { presioPRSvg: svgPR } : null),
@@ -3272,5 +3338,7 @@ export async function buildPresiometryPayload(
     conformanceStatement,
     testConditions,
     signatures,
+    i18n: tr,
+    htmlLang: tr.htmlLang,
   };
 }

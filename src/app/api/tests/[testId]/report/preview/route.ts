@@ -13,7 +13,7 @@ export const maxDuration = 60;
 
 type Params = { params: Promise<{ testId: string }> };
 
-export async function GET(_req: Request, { params }: Params) {
+export async function GET(req: Request, { params }: Params) {
   try {
     const auth = await requireAuth();
     if (!auth.ok) return auth.res;
@@ -56,6 +56,9 @@ export async function GET(_req: Request, { params }: Params) {
     }
 
     const url = `${baseUrl.replace(/\/$/, "")}/reports/preview`;
+    const pUrl = new URL(req.url);
+    const localeQ = pUrl.searchParams.get("locale");
+    const locale = localeQ === "en" ? "en" : "ro";
     let res: Response;
     try {
       res = await fetch(url, {
@@ -64,7 +67,7 @@ export async function GET(_req: Request, { params }: Params) {
           "Content-Type": "application/json",
           "x-report-secret": secret,
         },
-        body: JSON.stringify({ testId }),
+        body: JSON.stringify({ testId, locale }),
         signal: AbortSignal.timeout(55_000),
       });
     } catch (e) {

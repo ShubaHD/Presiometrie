@@ -1,0 +1,12 @@
+<section class="section">
+  <h2>{{i18n.h2_identification}}</h2>
+  <div class="meta-grid">
+    <div class="meta-row"><span class="k">{{i18n.meta_project}}</span><span>{{#if project.name}}{{project.name}}{{else}}—{{/if}}</span></div>
+    <div class="meta-row"><span class="k">{{i18n.meta_client}}</span><span>{{#if project.client_name}}{{project.client_name}}{{else}}—{{/if}}</span></div>
+    <div class="meta-row"><span class="k">{{i18n.meta_location}}</span><span>{{#if project.location}}{{project.location}}{{else}}—{{/if}}</span></div>
+    <div class="meta-row"><span class="k">{{i18n.meta_borehole_code}}</span><span>{{#if borehole.code}}{{borehole.code}}{{else}}—{{/if}}</span></div>
+    <div class="meta-row"><span class="k">{{i18n.meta_sample}}</span><span>{{sample.code}}</span></div>
+    <div class="meta-row"><span class="k">{{i18n.meta_depth}}</span><span>{{sample.depth_from}} – {{sample.depth_to}}</span></div>
+    {{#if sample.lithology}}<div class="meta-row"><span class="k">{{i18n.meta_lithology}}</span><span>{{sample.lithology}}</span></div>{{/if}}
+  </div>
+</section>

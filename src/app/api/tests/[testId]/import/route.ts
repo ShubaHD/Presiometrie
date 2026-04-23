@@ -44,6 +44,18 @@ function scanPreambleForTestDateIso(text: string): string | undefined {
   return undefined;
 }
 
+/**
+ * După prima coloană (cheie), unește celulele nevide — evită „NXH,,,” din CSV-uri cu virgule
+ * finale goale, care altfel pot ajunge la coloane numerice și dau [22P02].
+ */
+function elastHeaderValueParts(parts: string[]): string {
+  return parts
+    .slice(1)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+    .join(", ");
+}
+
 function parseElastLoggerHeader(text: string): {
   dateIso?: string;
   time?: string;
@@ -62,7 +74,7 @@ function parseElastLoggerHeader(text: string): {
     const parts = line.split(",").map((s) => s.trim());
     if (parts.length < 2) continue;
     const key = parts[0]!.toLowerCase();
-    const val = parts.slice(1).join(",").trim();
+    const val = elastHeaderValueParts(parts);
 
     if (key.startsWith("date") || key === "data") {
       const iso = parseCsvDateToIso(val);
@@ -73,6 +85,7 @@ function parseElastLoggerHeader(text: string): {
     } else if (key.startsWith("hole no")) {
       out.holeNo = val || undefined;
     } else if (key.startsWith("depth")) {
+      if (!val) continue;
       const n = Number(val.replace(",", "."));
       if (Number.isFinite(n)) out.depthM = n;
     } else if (key.startsWith("tube type")) {
@@ -209,31 +222,32 @@ export async function POST(req: Request, { params }: Params) {
         const { error: insMErr } = await supabase.from("test_measurements").insert(rows);
         if (insMErr) throw insMErr;
       }
+    }
 
-      // Store the rest of header (holeNo, time) into presiometry_report_metadata_json for PDF visibility
-      const metaPatch: Record<string, unknown> = {};
-      if (hdr.holeNo) metaPatch.hole_no = hdr.holeNo;
-      if (hdr.time) metaPatch.start_time = hdr.time;
-      if (Object.keys(metaPatch).length > 0) {
-        const { data: curRow } = await supabase
-          .from("tests")
-          .select("presiometry_report_metadata_json")
-          .eq("id", testId)
-          .single();
-        const curMeta =
-          curRow && typeof (curRow as { presiometry_report_metadata_json?: unknown }).presiometry_report_metadata_json === "object"
-            ? ((curRow as { presiometry_report_metadata_json?: unknown }).presiometry_report_metadata_json as Record<string, unknown>)
-            : {};
-        const { error: upMetaErr } = await supabase
-          .from("tests")
-          .update({
-            presiometry_report_metadata_json: { ...curMeta, ...metaPatch },
-            updated_by: actor.displayName,
-            updated_by_user_id: actor.userId,
-          })
-          .eq("id", testId);
-        if (upMetaErr) throw upMetaErr;
-      }
+    // Metadata raport: dată din CSV (backup pentru PDF), foraj/oră din antet când există
+    const metaPatch: Record<string, unknown> = {};
+    if (dateIsoForTest) metaPatch.import_test_date_iso = dateIsoForTest;
+    if (hdr?.holeNo?.trim()) metaPatch.hole_no = hdr.holeNo.trim();
+    if (hdr?.time) metaPatch.start_time = hdr.time;
+    if (Object.keys(metaPatch).length > 0) {
+      const { data: curRow } = await supabase
+        .from("tests")
+        .select("presiometry_report_metadata_json")
+        .eq("id", testId)
+        .single();
+      const curMeta =
+        curRow && typeof (curRow as { presiometry_report_metadata_json?: unknown }).presiometry_report_metadata_json === "object"
+          ? ((curRow as { presiometry_report_metadata_json?: unknown }).presiometry_report_metadata_json as Record<string, unknown>)
+          : {};
+      const { error: upMetaErr } = await supabase
+        .from("tests")
+        .update({
+          presiometry_report_metadata_json: { ...curMeta, ...metaPatch },
+          updated_by: actor.displayName,
+          updated_by_user_id: actor.userId,
+        })
+        .eq("id", testId);
+      if (upMetaErr) throw upMetaErr;
     }
 
     // Best-effort: store raw import file for traceability (non-fatal on failure)

@@ -1,19 +1,19 @@
 <!DOCTYPE html>
-<html lang="ro">
+<html lang="{{#if htmlLang}}{{htmlLang}}{{else}}ro{{/if}}">
 <head>
   <meta charset="utf-8" />
   <title>{{#if reportPageTitle}}{{reportPageTitle}}{{else}}Încercare presiometrică (SR EN ISO 22476-5){{/if}} · {{sample.code}}</title>
   <style>{{{combinedCss}}}</style>
 </head>
 <body>
-  {{#if show.header}}{{> header}}{{/if}}
-  {{#if show.sampleInfo}}{{> sample_info}}{{/if}}
+  {{#if show.header}}{{> header_presiometry}}{{/if}}
+  {{#if show.sampleInfo}}{{> sample_info_presiometry}}{{/if}}
   {{#if show.testConditions}}{{> test_conditions_presiometry}}{{/if}}
   {{#if show.specimenPhotos}}{{> specimen_photos}}{{/if}}
   {{#if show.measurements}}{{> measurements_table}}{{/if}}
   {{#if show.results}}{{> results_table}}{{/if}}
   {{#if charts.presioPRSvg}}
-    <h2>Grafice</h2>
+    <h2>{{i18n.h2_charts}}</h2>
     <div class="figure">
       {{{charts.presioPRSvg}}}
     </div>
@@ -25,7 +25,6 @@
   {{/if}}
   {{#if show.observations}}{{> observations_presiometry}}{{/if}}
   {{#if show.signatures}}{{> signatures}}{{/if}}
-  {{#if show.footer}}{{> footer}}{{/if}}
+  {{#if show.footer}}{{> footer_presiometry}}{{/if}}
 </body>
 </html>
-

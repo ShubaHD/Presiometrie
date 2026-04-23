@@ -1,8 +1,12 @@
 <section class="section">
-  <h2>Rezultate calculate</h2>
+  <h2>{{#if i18n.h2_results}}{{i18n.h2_results}}{{else}}Rezultate calculate{{/if}}</h2>
   <table class="data">
     <thead>
-      <tr><th>Rezultat</th><th>Valoare</th><th>Unitate</th></tr>
+      <tr>
+        <th>{{#if i18n.th_result}}{{i18n.th_result}}{{else}}Rezultat{{/if}}</th>
+        <th>{{#if i18n.th_value}}{{i18n.th_value}}{{else}}Valoare{{/if}}</th>
+        <th>{{#if i18n.th_unit}}{{i18n.th_unit}}{{else}}Unitate{{/if}}</th>
+      </tr>
     </thead>
     <tbody>
       {{#each results}}
@@ -13,6 +17,6 @@
     </tbody>
   </table>
   {{#if test.formula_version}}
-    <p class="muted">Versiune formule motor calcule: {{test.formula_version}}</p>
+    <p class="muted">{{#if i18n.formula_version}}{{i18n.formula_version}}{{else}}Versiune formule motor calcule{{/if}}: {{test.formula_version}}</p>
   {{/if}}
 </section>

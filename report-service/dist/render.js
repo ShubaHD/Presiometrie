@@ -7,8 +7,11 @@ export async function loadTemplateConfig(templatesRoot, folder) {
 }
 const PARTIAL_FILES = [
     "header",
+    "header_presiometry",
     "footer",
+    "footer_presiometry",
     "sample_info",
+    "sample_info_presiometry",
     "test_conditions",
     "test_conditions_presiometry",
     "iso_17892_7_mandatory",

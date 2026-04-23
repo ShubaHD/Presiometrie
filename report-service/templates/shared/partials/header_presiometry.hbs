@@ -1,0 +1,34 @@
+<header class="section report-page-header">
+  <div class="report-header-top">
+    <div class="lab-brand">
+      {{#if lab.logoSrc}}
+      <div class="lab-logo-wrap">
+        <img class="lab-logo-img" src="{{{lab.logoSrc}}}" alt="" />
+      </div>
+      {{/if}}
+      <div class="lab-contact">
+        {{#if lab.companyName}}
+        <div class="lab-company-name">{{lab.companyName}}</div>
+        {{/if}}
+        {{#if lab.address}}
+        <div>{{lab.address}}</div>
+        {{/if}}
+        {{#if lab.phone}}
+        <div>{{i18n.tel_prefix}}: {{lab.phone}}</div>
+        {{/if}}
+        {{#if lab.website}}
+        <div>{{lab.website}}</div>
+        {{/if}}
+        <div class="lab-authorization">{{i18n.lab_auth}}</div>
+      </div>
+    </div>
+    <div class="report-header-title">
+      <h1 class="bulletin-main-title">{{#if reportMainTitle}}{{reportMainTitle}}{{/if}}</h1>
+      <p class="bulletin-norm-ref">{{#if reportNormRef}}{{reportNormRef}}{{/if}}</p>
+      {{#if conformanceStatement}}
+      <p class="muted">{{conformanceStatement}}</p>
+      {{/if}}
+      <p class="muted">{{i18n.hdr_project_prefix}} <strong>{{project.code}}</strong> — {{project.name}}</p>
+    </div>
+  </div>
+</header>

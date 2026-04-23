@@ -10,6 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { jsonLabHeaders, labUserFetchHeaders } from "@/lib/lab-client-user";
+import { useLabLocale } from "@/components/lab/lab-locale-provider";
 import { reportsStorageBucket } from "@/lib/reports-bucket";
 import { MEASUREMENT_PRESETS } from "@/lib/measurement-presets";
 import { PMT_PROBE_DIAMETER_MM, PMT_SEATING_R_MM_DEFAULT } from "@/lib/presiometry-defaults";
@@ -304,6 +305,7 @@ export function TestWorkspace({
   const [results, setResults] = useState<TestResult[]>([]);
   const [reports, setReports] = useState<ReportRow[]>([]);
   const [specimenPhotosInPdf, setSpecimenPhotosInPdf] = useState(true);
+  const { locale: reportLocale } = useLabLocale();
 
   /** `silent`: nu ascunde întreg ecranul (păstrează tab-ul activ); folosit după salvări / calcule. */
   const load = useCallback(async (opts?: { silent?: boolean }) => {
@@ -896,6 +898,7 @@ export function TestWorkspace({
       const res = await fetch(`/api/tests/${testId}/report`, {
         method: "POST",
         headers: { ...jsonLabHeaders(), "X-ROCA-Report-Sync": "1" },
+        body: JSON.stringify({ locale: reportLocale === "en" ? "en" : "ro" }),
       });
       const json = (await res.json()) as { ok?: boolean; error?: string };
       if (!res.ok) throw new Error(json.error ?? "Eroare PDF.");
@@ -928,7 +931,8 @@ export function TestWorkspace({
   };
 
   const openReportPreview = () => {
-    window.open(`/api/tests/${testId}/report/preview`, "_blank", "noopener,noreferrer");
+    const q = reportLocale === "en" ? "?locale=en" : "";
+    window.open(`/api/tests/${testId}/report/preview${q}`, "_blank", "noopener,noreferrer");
   };
 
   const saveReportOptions = async () => {

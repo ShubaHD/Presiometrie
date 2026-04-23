@@ -28,6 +28,7 @@ async function forwardToReportService(
   testId: string,
   baseUrl: string,
   secret: string,
+  opts?: { locale?: "ro" | "en" },
 ): Promise<ForwardResult> {
   const url = `${baseUrl.replace(/\/$/, "")}/reports`;
   try {
@@ -37,7 +38,7 @@ async function forwardToReportService(
         "Content-Type": "application/json",
         "x-report-secret": secret,
       },
-      body: JSON.stringify({ testId }),
+      body: JSON.stringify({ testId, locale: opts?.locale === "en" ? "en" : "ro" }),
       signal: AbortSignal.timeout(UPSTREAM_REPORT_MS),
     });
     let json: Record<string, unknown>;
@@ -124,8 +125,16 @@ export async function POST(req: Request, { params }: Params) {
 
     const sync = req.headers.get("x-roca-report-sync") === "1";
 
+    let reportLocale: "ro" | "en" = "ro";
+    try {
+      const b = (await req.json()) as { locale?: string } | null;
+      if (b?.locale === "en") reportLocale = "en";
+    } catch {
+      /* fără corp JSON */
+    }
+
     if (sync) {
-      const out = await forwardToReportService(testId, baseUrl, secret);
+      const out = await forwardToReportService(testId, baseUrl, secret, { locale: reportLocale });
       const errMsg =
         typeof out.body.error === "string" ? out.body.error : "Eroare report-service";
       if (!out.ok) {
@@ -146,7 +155,7 @@ export async function POST(req: Request, { params }: Params) {
           }
         }, KEEPALIVE_MS);
         try {
-          const out = await forwardToReportService(testId, baseUrl, secret);
+          const out = await forwardToReportService(testId, baseUrl, secret, { locale: reportLocale });
           if (!out.ok) {
             const errMsg =
               typeof out.body.error === "string" ? out.body.error : "Eroare report-service";

@@ -4,6 +4,7 @@ import express from "express";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { parseReportLocale } from "./presiometry-i18n.js";
 import { buildPresiometryPayload } from "./payload.js";
 import { htmlToPdf } from "./pdf.js";
 import { loadTemplateConfig, renderUcsHtml } from "./render.js";
@@ -134,7 +135,7 @@ function sanitizeStorageFileSegment(raw) {
         out = out.slice(0, 120);
     return out;
 }
-async function buildHtmlForTest(testId) {
+async function buildHtmlForTest(testId, options) {
     const { url: supabaseUrl, key: supabaseKey } = supabaseProjectUrlAndKey();
     const supabase = createClient(supabaseUrl, supabaseKey, {
         auth: { persistSession: false, autoRefreshToken: false },
@@ -159,7 +160,10 @@ async function buildHtmlForTest(testId) {
         reportFileTag = "presiometry_program_b";
     else
         reportFileTag = "presiometry_program_c";
-    const payload = await buildPresiometryPayload(supabase, testId, cfg.templateCode, cfg.version, cfg.sections);
+    const locale = parseReportLocale(options?.locale);
+    const payload = await buildPresiometryPayload(supabase, testId, cfg.templateCode, cfg.version, cfg.sections, {
+        locale,
+    });
     const html = await renderUcsHtml(templatesRoot, templateFolder, payload, cfg);
     const sampleCode = typeof payload.sample?.code === "string" ? payload.sample.code : "";
     return {
@@ -190,7 +194,8 @@ app.post("/reports/preview", async (req, res) => {
         }
         if (!requireSecretOrToken(req, res, testId))
             return;
-        const { html, templateCode, templateVersion } = await buildHtmlForTest(testId);
+        const locale = parseReportLocale(req.body?.locale);
+        const { html, templateCode, templateVersion } = await buildHtmlForTest(testId, { locale });
         res.json({ ok: true, html, templateCode, templateVersion });
     }
     catch (e) {
@@ -221,7 +226,10 @@ app.post("/reports", async (req, res) => {
         const supabase = createClient(supabaseUrl, supabaseKey, {
             auth: { persistSession: false, autoRefreshToken: false },
         });
-        const { html, templateCode, templateVersion, reportFileTag, sampleCode } = await buildHtmlForTest(testId);
+        const locale = parseReportLocale(req.body?.locale);
+        const { html, templateCode, templateVersion, reportFileTag, sampleCode } = await buildHtmlForTest(testId, {
+            locale,
+        });
         const pdfBuf = await htmlToPdf(html);
         const nameSeg = sanitizeStorageFileSegment(sampleCode);
         const pdfPath = `${testId}/${nameSeg}-${reportFileTag}-report-${Date.now()}.pdf`;

@@ -5,7 +5,9 @@
     <div class="meta-row"><span class="k">Client</span><span>{{#if project.client_name}}{{project.client_name}}{{else}}—{{/if}}</span></div>
     <div class="meta-row"><span class="k">Amplasament</span><span>{{#if project.location}}{{project.location}}{{else}}—{{/if}}</span></div>
     <div class="meta-row"><span class="k">Cod foraj</span><span>{{#if borehole.code}}{{borehole.code}}{{else}}—{{/if}}</span></div>
+    {{#unless show.presiometryReport}}
     <div class="meta-row"><span class="k">Număr foraj</span><span>{{#if borehole.name}}{{borehole.name}}{{else}}—{{/if}}</span></div>
+    {{/unless}}
     <div class="meta-row"><span class="k">Număr probă</span><span>{{sample.code}}</span></div>
     <div class="meta-row"><span class="k">Adâncime test (m)</span><span>{{sample.depth_from}} – {{sample.depth_to}}</span></div>
     {{#if sample.lithology}}<div class="meta-row"><span class="k">Litologie</span><span>{{sample.lithology}}</span></div>{{/if}}
