@@ -12,6 +12,17 @@
   {{#if show.specimenPhotos}}{{> specimen_photos}}{{/if}}
   {{#if show.measurements}}{{> measurements_table}}{{/if}}
   {{#if show.results}}{{> results_table}}{{/if}}
+  {{#if charts.presioPRSvg}}
+    <h2>Grafice</h2>
+    <div class="figure">
+      {{{charts.presioPRSvg}}}
+    </div>
+    {{#if charts.presioPdRSvg}}
+      <div class="figure" style="margin-top: 12px;">
+        {{{charts.presioPdRSvg}}}
+      </div>
+    {{/if}}
+  {{/if}}
   {{#if show.observations}}{{> observations}}{{/if}}
   {{#if show.signatures}}{{> signatures}}{{/if}}
   {{#if show.footer}}{{> footer}}{{/if}}

@@ -85,18 +85,13 @@ export async function POST(req: Request, { params }: Params) {
     if (tErr) throw tErr;
 
     if (
-      test.test_type !== "ucs" &&
-      test.test_type !== "young" &&
-      test.test_type !== "point_load" &&
-      test.test_type !== "triaxial_rock" &&
-      test.test_type !== "unconfined_soil" &&
-      test.test_type !== "absorption_porosity_rock" &&
-      test.test_type !== "presiometry"
+      test.test_type !== "presiometry_program_a" &&
+      test.test_type !== "presiometry_program_b" &&
+      test.test_type !== "presiometry_program_c"
     ) {
       return NextResponse.json(
         {
-          error:
-            "Generarea PDF este disponibilă pentru testele UCS, Young, Triaxial (ASTM D7012), Point load (ASTM D5731), Compresiune monoaxială (ISO 17892-7), Absorbție/Porozitate (ISO 13755) și Presiometrie (ISO 22476-5).",
+          error: "Generarea PDF este disponibilă doar pentru Presiometrie (SR EN ISO 22476-5) Program A/B/C.",
         },
         { status: 400 },
       );

@@ -23,7 +23,7 @@ import {
 import { ExplorerDeleteDialog } from "@/components/lab/explorer-delete-dialog";
 import { LabBreadcrumb } from "@/components/lab/lab-breadcrumb";
 import { Textarea } from "@/components/ui/textarea";
-import { ASTM_D7012_REFERENCE, NEW_TEST_OPTIONS } from "@/lib/test-type-options";
+import { NEW_TEST_OPTIONS } from "@/lib/test-type-options";
 import type { Borehole, Project, Sample, TestType } from "@/types/lab";
 import { Loader2, Plus } from "lucide-react";
 import Link from "next/link";
@@ -42,7 +42,7 @@ export function BoreholeDetailClient({ projectId, boreholeId }: { projectId: str
   const [busy, setBusy] = useState(false);
   const [openSample, setOpenSample] = useState(false);
   const [autoSampleNumber, setAutoSampleNumber] = useState(true);
-  const [autoCodeTestType, setAutoCodeTestType] = useState<TestType>("ucs");
+  const [autoCodeTestType, setAutoCodeTestType] = useState<TestType>("presiometry_program_a");
   const [allocationDateIso, setAllocationDateIso] = useState("");
   const [suggestedSampleCode, setSuggestedSampleCode] = useState<string | null>(null);
   const [createdSampleCodeNote, setCreatedSampleCodeNote] = useState<string | null>(null);
@@ -166,7 +166,7 @@ export function BoreholeDetailClient({ projectId, boreholeId }: { projectId: str
       }
       setOpenSample(false);
       setAutoSampleNumber(true);
-      setAutoCodeTestType("ucs");
+      setAutoCodeTestType("presiometry_program_a");
       setAllocationDateIso("");
       setNewSp({ code: "", depth_from: "", depth_to: "", lithology: "" });
       await loadSamples();
@@ -223,7 +223,7 @@ export function BoreholeDetailClient({ projectId, boreholeId }: { projectId: str
           setOpenSample(o);
           if (!o) {
             setAutoSampleNumber(true);
-            setAutoCodeTestType("ucs");
+            setAutoCodeTestType("presiometry_program_a");
             setAllocationDateIso("");
             setCreatedSampleCodeNote(null);
           }
@@ -244,7 +244,7 @@ export function BoreholeDetailClient({ projectId, boreholeId }: { projectId: str
               <span>
                 <span className="font-medium">Număr probă automat</span>
                 <span className="text-muted-foreground block text-xs">
-                  Cod de forma PREFIX + zi (DDMMYYYY) + număr (5 cifre), ex. UCS1404202600001. Contor separat
+                  Cod de forma PREFIX + zi (DDMMYYYY) + număr (5 cifre), ex. PMTA1404202600001. Contor separat
                   per foraj, tip încercare și zi (fără curse la creare simultană). Ziua implicită: azi
                   (Europe/București), dacă nu alegeți altă dată.
                 </span>
@@ -269,18 +269,8 @@ export function BoreholeDetailClient({ projectId, boreholeId }: { projectId: str
                       className="z-[200] max-h-[min(75vh,36rem)] w-[min(calc(100vw-2rem),48rem)] min-w-[min(calc(100vw-2rem),48rem)] max-w-[min(calc(100vw-2rem),48rem)]"
                     >
                       <SelectGroup>
-                        <SelectLabel className="text-muted-foreground whitespace-normal px-2 py-1.5 leading-snug">
-                          {ASTM_D7012_REFERENCE}
-                        </SelectLabel>
-                        {NEW_TEST_OPTIONS.filter((o) => o.group === "astm_d7012").map((t) => (
-                          <SelectItem key={t.value} value={t.value}>
-                            {t.label}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                      <SelectGroup>
-                        <SelectLabel className="text-muted-foreground px-2 py-1.5">Alte încercări</SelectLabel>
-                        {NEW_TEST_OPTIONS.filter((o) => o.group === "other").map((t) => (
+                        <SelectLabel className="text-muted-foreground px-2 py-1.5">Presiometrie</SelectLabel>
+                        {NEW_TEST_OPTIONS.map((t) => (
                           <SelectItem key={t.value} value={t.value}>
                             {t.label}
                           </SelectItem>

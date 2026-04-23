@@ -1,14 +1,9 @@
 import type { TestType } from "@/types/lab";
 
 const TEST_TYPES: TestType[] = [
-  "ucs",
-  "point_load",
-  "unit_weight",
-  "young",
-  "triaxial_rock",
-  "sr_en_1926",
-  "unconfined_soil",
-  "absorption_porosity_rock",
+  "presiometry_program_a",
+  "presiometry_program_b",
+  "presiometry_program_c",
 ];
 
 export function isTestType(v: string): v is TestType {

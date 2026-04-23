@@ -54,6 +54,10 @@ export interface ReportPayload {
     soilEpsilonDispTimeSvg?: string;
     /** Cerc Mohr q_u – c_u (kPa). */
     soilMohrQuCuSvg?: string;
+    /** Presiometrie: p(kPa) vs R(mm) */
+    presioPRSvg?: string;
+    /** Presiometrie: p(kPa) vs ΔR(mm) */
+    presioPdRSvg?: string;
   };
   photos: {
     beforeSrc: string | null;
@@ -175,6 +179,59 @@ function fmtNum(v: unknown, decimals = 3): string {
   const n = typeof v === "number" ? v : Number(v);
   if (!Number.isFinite(n)) return "—";
   return n.toFixed(decimals);
+}
+
+function svgLineChart(opts: {
+  width?: number;
+  height?: number;
+  title: string;
+  xLabel: string;
+  yLabel: string;
+  points: Array<{ x: number; y: number }>;
+}): string | null {
+  const width = opts.width ?? 820;
+  const height = opts.height ?? 260;
+  const pts = opts.points.filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y));
+  if (pts.length < 2) return null;
+
+  const minX = Math.min(...pts.map((p) => p.x));
+  const maxX = Math.max(...pts.map((p) => p.x));
+  const minY = Math.min(...pts.map((p) => p.y));
+  const maxY = Math.max(...pts.map((p) => p.y));
+  const dx = maxX - minX;
+  const dy = maxY - minY;
+  if (!(dx > 0) || !(dy > 0)) return null;
+
+  const padL = 52;
+  const padR = 16;
+  const padT = 26;
+  const padB = 34;
+  const innerW = width - padL - padR;
+  const innerH = height - padT - padB;
+  const sx = (x: number) => padL + ((x - minX) / dx) * innerW;
+  const sy = (y: number) => padT + (1 - (y - minY) / dy) * innerH;
+
+  const path = pts
+    .map((p, i) => `${i === 0 ? "M" : "L"} ${sx(p.x).toFixed(2)} ${sy(p.y).toFixed(2)}`)
+    .join(" ");
+
+  const axis = `
+    <line x1="${padL}" y1="${padT}" x2="${padL}" y2="${padT + innerH}" stroke="#888" stroke-width="1" />
+    <line x1="${padL}" y1="${padT + innerH}" x2="${padL + innerW}" y2="${padT + innerH}" stroke="#888" stroke-width="1" />
+  `;
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+  <style>
+    .t { font: 12px Arial, sans-serif; fill: #222; }
+    .m { font: 10px Arial, sans-serif; fill: #444; }
+  </style>
+  <text class="t" x="${padL}" y="16">${opts.title}</text>
+  ${axis}
+  <path d="${path}" fill="none" stroke="#2a6fdb" stroke-width="1.5" />
+  <text class="m" x="${padL + innerW / 2}" y="${height - 10}" text-anchor="middle">${opts.xLabel}</text>
+  <text class="m" x="14" y="${padT + innerH / 2}" transform="rotate(-90 14 ${padT + innerH / 2})" text-anchor="middle">${opts.yLabel}</text>
+</svg>`;
 }
 
 function normalizePdfLabel(raw: unknown): string {
@@ -2800,7 +2857,7 @@ export async function buildPresiometryPayload(
       `
       id, test_type, status, operator_name, device_name, prepared_by, verified_by, test_date, formula_version, notes,
       created_at, updated_at, created_by, updated_by,
-      presiometry_report_metadata_json, report_options_json,
+      presiometry_report_metadata_json, report_options_json, presiometry_curve_json,
       sample:samples (
         id, code, depth_from, depth_to, lithology, notes,
         borehole:boreholes (
@@ -2813,8 +2870,9 @@ export async function buildPresiometryPayload(
     .eq("id", testId)
     .single();
   if (tErr) throw tErr;
-  if (!test || normalizeTestTypeForPayload(test.test_type) !== "presiometry") {
-    throw new Error("Doar testele presiometrie (presiometry) sunt suportate.");
+  const tt = normalizeTestTypeForPayload((test as { test_type?: unknown }).test_type);
+  if (!test || (tt !== "presiometry_program_a" && tt !== "presiometry_program_b" && tt !== "presiometry_program_c")) {
+    throw new Error("Doar testele presiometrie Program A/B/C sunt suportate.");
   }
 
   const rawSample = (test as { sample?: unknown }).sample;
@@ -2879,9 +2937,51 @@ export async function buildPresiometryPayload(
         >)
       : {};
 
-  const reportMainTitle = "Încercare presiometrică";
+  const holeNo = typeof rawMeta.hole_no === "string" ? rawMeta.hole_no.trim() : "";
+  const startTime = typeof rawMeta.start_time === "string" ? rawMeta.start_time.trim() : "";
+
+  const curveRaw = (test as { presiometry_curve_json?: unknown }).presiometry_curve_json;
+  const curveObj =
+    curveRaw && typeof curveRaw === "object" ? (curveRaw as { x_kind?: unknown; points?: unknown }) : null;
+  const xKind = curveObj?.x_kind === "radius_mm" ? "radius_mm" : "volume_cm3";
+  const ptsArr = Array.isArray(curveObj?.points) ? (curveObj!.points as unknown[]) : [];
+  const curvePts = ptsArr
+    .map((p) => (p && typeof p === "object" ? (p as Record<string, unknown>) : null))
+    .filter((p): p is Record<string, unknown> => Boolean(p))
+    .map((p) => {
+      const p_kpa = Number(p.p_kpa);
+      const r_mm = p.r_mm != null ? Number(p.r_mm) : Number(p.v_cm3);
+      const v_cm3 = Number(p.v_cm3);
+      const x = xKind === "radius_mm" ? r_mm : v_cm3;
+      return { p_kpa, r_mm, v_cm3, x };
+    })
+    .filter((p) => Number.isFinite(p.p_kpa) && Number.isFinite(p.x));
+
+  const svgPR =
+    curvePts.length >= 2
+      ? svgLineChart({
+          title: xKind === "radius_mm" ? "Curba p–R" : "Curba p–V",
+          xLabel: xKind === "radius_mm" ? "R (mm)" : "V (cm³)",
+          yLabel: "p (kPa)",
+          points: curvePts.map((p) => ({ x: p.x, y: p.p_kpa })),
+        })
+      : null;
+
+  const r0 = curvePts[0]?.r_mm ?? 0;
+  const svgPdR =
+    curvePts.length >= 2
+      ? svgLineChart({
+          title: xKind === "radius_mm" ? "Curba p–ΔR" : "Curba p–ΔV",
+          xLabel: xKind === "radius_mm" ? "ΔR (mm)" : "ΔV (cm³)",
+          yLabel: "p (kPa)",
+          points: curvePts.map((p) => ({ x: xKind === "radius_mm" ? p.r_mm - r0 : p.v_cm3 - (curvePts[0]?.v_cm3 ?? 0), y: p.p_kpa })),
+        })
+      : null;
+
+  const programLabel = tt === "presiometry_program_a" ? "Program A" : tt === "presiometry_program_b" ? "Program B" : "Program C";
+  const reportMainTitle = `Încercare presiometrică — ${programLabel}`;
   const reportNormRef = "SR EN ISO 22476-5";
-  const reportPageTitle = "Presiometrie";
+  const reportPageTitle = `Presiometrie (${programLabel})`;
   const conformanceStatement = "Încercarea a fost efectuată conform SR EN ISO 22476-5.";
 
   const testConditions: ReportPayload["testConditions"] = {
@@ -2934,7 +3034,7 @@ export async function buildPresiometryPayload(
     },
     test: {
       id: String((test as { id?: unknown }).id ?? ""),
-      test_type: "presiometry",
+      test_type: tt,
       status: String((test as { status?: unknown }).status ?? ""),
       conclusion: typeof rawMeta.conclusion === "string" ? rawMeta.conclusion : null,
       operator_name: (test as { operator_name?: string | null }).operator_name ?? null,
@@ -2947,12 +3047,39 @@ export async function buildPresiometryPayload(
       created_by: (test as { created_by?: string | null }).created_by ?? null,
       updated_by: (test as { updated_by?: string | null }).updated_by ?? null,
     },
-    measurements: (measurements ?? []).map((m) => ({
-      label: String((m as { label?: unknown }).label ?? (m as { key?: unknown }).key ?? ""),
-      key: String((m as { key?: unknown }).key ?? ""),
-      value: fmtNum((m as { value?: unknown }).value, 3),
-      unit: String((m as { unit?: unknown }).unit ?? ""),
-    })),
+    measurements: (() => {
+      const base = (measurements ?? []).map((m) => ({
+        label: String((m as { label?: unknown }).label ?? (m as { key?: unknown }).key ?? ""),
+        key: String((m as { key?: unknown }).key ?? ""),
+        value: fmtNum((m as { value?: unknown }).value, 3),
+        unit: String((m as { unit?: unknown }).unit ?? ""),
+      }));
+
+      const packer = (measurements ?? []).find((m) => (m as { key?: unknown }).key === "pmt_packer_diameter_mm") as
+        | { value?: unknown }
+        | undefined;
+      const packerVal = packer?.value;
+      const packerNum = packerVal == null ? NaN : Number(packerVal);
+      const hasPacker = Number.isFinite(packerNum) && packerNum > 0;
+
+      // The curve is stored as JSON on `tests`; we don't read it here yet.
+      // For Elast Logger workflows we explicitly note the axis in the report title + measurements.
+      const axisNote = { label: "Seria importată", key: "pmt_series_axis", value: "p–R (R în mm)", unit: "" };
+
+      const out = [...base];
+      if (holeNo) out.unshift({ label: "Număr foraj (din CSV)", key: "pmt_hole_no", value: holeNo, unit: "" });
+      if (startTime) out.unshift({ label: "Ora start (din CSV)", key: "pmt_start_time", value: startTime, unit: "" });
+      if (hasPacker) {
+        out.unshift({
+          label: "Diametru packer (NX)",
+          key: "pmt_packer_diameter_mm",
+          value: fmtNum(packerNum, 0),
+          unit: "mm",
+        });
+      }
+      out.unshift(axisNote);
+      return out;
+    })(),
     results: (results ?? []).map((r) => ({
       label: String((r as { label?: unknown }).label ?? (r as { key?: unknown }).key ?? ""),
       key: String((r as { key?: unknown }).key ?? ""),
@@ -2960,7 +3087,10 @@ export async function buildPresiometryPayload(
       unit: String((r as { unit?: unknown }).unit ?? ""),
     })),
     show,
-    charts: {},
+    charts: {
+      ...(svgPR ? { presioPRSvg: svgPR } : null),
+      ...(svgPdR ? { presioPdRSvg: svgPdR } : null),
+    },
     photos: { beforeSrc, afterSrc },
     lab,
     footer: { formCode: "ISO-22476-5" },

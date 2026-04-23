@@ -4,15 +4,7 @@ import express from "express";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  buildPointLoadPayload,
-  buildUcsPayload,
-  buildUnconfinedSoilPayload,
-  buildYoungPayload,
-  buildAbsorptionPorosityRockPayload,
-  buildTriaxialRockPayload,
-  buildPresiometryPayload,
-} from "./payload.js";
+import { buildPresiometryPayload } from "./payload.js";
 import { htmlToPdf } from "./pdf.js";
 import { loadTemplateConfig, renderUcsHtml } from "./render.js";
 import { toErrorMessage } from "./to-error-message.js";
@@ -117,13 +109,9 @@ async function buildHtmlForTest(testId: string): Promise<{
   templateCode: string;
   templateVersion: string;
   reportFileTag:
-    | "ucs"
-    | "young"
-    | "point_load"
-    | "unconfined_soil"
-    | "absorption_porosity_rock"
-    | "triaxial_rock"
-    | "presiometry";
+    | "presiometry_program_a"
+    | "presiometry_program_b"
+    | "presiometry_program_c";
   sampleCode: string;
 }> {
   const supabaseUrl = process.env.SUPABASE_URL;
@@ -140,67 +128,23 @@ async function buildHtmlForTest(testId: string): Promise<{
   const testType = normalizeTestTypeForReport(testTypeRaw);
 
   const templateFolder =
-    testType === "absorption_porosity_rock"
-      ? "iso13755-absorption-porosity"
-      : testType === "presiometry"
-        ? "iso22476-5-presiometry"
-        : "ucs-default";
+    testType === "presiometry_program_a" || testType === "presiometry_program_b" || testType === "presiometry_program_c"
+      ? "iso22476-5-presiometry"
+      : "";
+  if (!templateFolder) {
+    const display = testType || String(testTypeRaw ?? "").trim() || "(lipsă)";
+    throw new Error(`Tip test nesuportat pentru raport: ${display}. Permis: presiometry_program_a|b|c.`);
+  }
   const cfg = await loadTemplateConfig(templatesRoot, templateFolder);
   let reportFileTag:
-    | "ucs"
-    | "young"
-    | "point_load"
-    | "unconfined_soil"
-    | "absorption_porosity_rock"
-    | "triaxial_rock"
-    | "presiometry";
-  let payload;
-  if (testType === "ucs") {
-    reportFileTag = "ucs";
-    payload = await buildUcsPayload(supabase, testId, cfg.templateCode, cfg.version, cfg.sections);
-  } else if (testType === "young") {
-    reportFileTag = "young";
-    payload = await buildYoungPayload(supabase, testId, cfg.templateCode, cfg.version, cfg.sections);
-  } else if (testType === "triaxial_rock") {
-    reportFileTag = "triaxial_rock";
-    payload = await buildTriaxialRockPayload(supabase, testId, cfg.templateCode, cfg.version, cfg.sections);
-  } else if (testType === "point_load") {
-    reportFileTag = "point_load";
-    payload = await buildPointLoadPayload(
-      supabase,
-      testId,
-      cfg.templateCode,
-      cfg.version,
-      templatesRoot,
-    );
-  } else if (testType === "unconfined_soil") {
-    reportFileTag = "unconfined_soil";
-    payload = await buildUnconfinedSoilPayload(
-      supabase,
-      testId,
-      cfg.templateCode,
-      cfg.version,
-      cfg.sections,
-    );
-  } else if (testType === "absorption_porosity_rock") {
-    reportFileTag = "absorption_porosity_rock";
-    payload = await buildAbsorptionPorosityRockPayload(
-      supabase,
-      testId,
-      cfg.templateCode,
-      cfg.version,
-      cfg.sections,
-    );
-  } else if (testType === "presiometry") {
-    reportFileTag = "presiometry";
-    payload = await buildPresiometryPayload(supabase, testId, cfg.templateCode, cfg.version, cfg.sections);
-  } else {
-    const display = testType || String(testTypeRaw ?? "").trim() || "(lipsă)";
-    throw new Error(
-      `Tip test nesuportat pentru raport: ${display}. Permis: ucs, young, triaxial_rock, point_load, unconfined_soil, absorption_porosity_rock, presiometry. ` +
-        `Dacă mesajul arată „point_load” dar tot eșuează, report-service de pe server este o versiune veche — redeploy Railway din ultimul commit (Docker / folder report-service).`,
-    );
-  }
+    | "presiometry_program_a"
+    | "presiometry_program_b"
+    | "presiometry_program_c";
+  if (testType === "presiometry_program_a") reportFileTag = "presiometry_program_a";
+  else if (testType === "presiometry_program_b") reportFileTag = "presiometry_program_b";
+  else reportFileTag = "presiometry_program_c";
+
+  const payload = await buildPresiometryPayload(supabase, testId, cfg.templateCode, cfg.version, cfg.sections);
   const html = await renderUcsHtml(templatesRoot, templateFolder, payload, cfg);
   const sampleCode = typeof payload.sample?.code === "string" ? payload.sample.code : "";
   return {

@@ -30,11 +30,6 @@ export default function AdminHomePage() {
           </Link>
         </li>
         <li>
-          <Link href="/admin/triaxial" className="text-primary font-medium underline">
-            Triaxial rocă (QC mărci + c/φ + E/ν)
-          </Link>
-        </li>
-        <li>
           <span className="text-muted-foreground">
             Ghid backup și restore: fișierul{" "}
             <code className="bg-muted rounded px-1 py-0.5 text-xs">docs/BACKUP.md</code> din rădăcina repo-ului.

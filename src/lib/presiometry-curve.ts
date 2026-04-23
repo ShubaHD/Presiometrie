@@ -1,13 +1,24 @@
+export type PresiometryXKind = "volume_cm3" | "radius_mm";
+
 export type PresiometryPoint = {
   /** Presiune (kPa). */
   p_kpa: number;
-  /** Volum (cm³) sau volum echivalent, conform exportului. */
+  /**
+   * Compat: axa X (implicit volum echivalent, cm³).
+   * Pentru Elast Logger (p–R), `v_cm3` rămâne completat (cu R) doar pentru compatibilitate,
+   * dar sursa de adevăr este `r_mm` + `x_kind="radius_mm"`.
+   */
   v_cm3: number;
+  /** Radius (mm) — Elast Logger p–R. */
+  r_mm?: number;
+  /** ΔRi (mm) — Elast Logger (opțional). */
+  dri_mm?: number;
   /** Timp (secunde), opțional. */
   t_s?: number;
 };
 
 export type PresiometryCurvePayload = {
+  x_kind?: PresiometryXKind;
   points: PresiometryPoint[];
 };
 
@@ -16,12 +27,15 @@ function finiteNumber(v: unknown): number | null {
   if (typeof v === "number") return Number.isFinite(v) ? v : null;
   const s = String(v).trim();
   if (!s) return null;
-  const n = Number(s.replace(",", "."));
+  const n = Number(s.replace(/\s/g, "").replace(",", "."));
   return Number.isFinite(n) ? n : null;
 }
 
 export function parsePresiometryCurvePayload(raw: unknown): PresiometryCurvePayload | null {
   if (!raw || typeof raw !== "object") return null;
+  const xKindRaw = (raw as Record<string, unknown>).x_kind;
+  const x_kind: PresiometryXKind | undefined =
+    xKindRaw === "radius_mm" || xKindRaw === "volume_cm3" ? xKindRaw : undefined;
   const pts = (raw as Record<string, unknown>).points;
   if (!Array.isArray(pts)) return null;
   const out: PresiometryPoint[] = [];
@@ -31,42 +45,222 @@ export function parsePresiometryCurvePayload(raw: unknown): PresiometryCurvePayl
     const vc = finiteNumber((p as Record<string, unknown>).v_cm3);
     if (pk == null || vc == null) continue;
     const ts = finiteNumber((p as Record<string, unknown>).t_s);
-    out.push({ p_kpa: pk, v_cm3: vc, ...(ts != null ? { t_s: ts } : null) });
+    const rmm = finiteNumber((p as Record<string, unknown>).r_mm);
+    const drimm = finiteNumber((p as Record<string, unknown>).dri_mm);
+    out.push({
+      p_kpa: pk,
+      v_cm3: vc,
+      ...(rmm != null ? { r_mm: rmm } : null),
+      ...(drimm != null ? { dri_mm: drimm } : null),
+      ...(ts != null ? { t_s: ts } : null),
+    });
   }
-  return out.length ? { points: out } : null;
+  return out.length ? { points: out, ...(x_kind ? { x_kind } : null) } : null;
 }
 
 export function clampPresiometryCurveForStorage(payload: PresiometryCurvePayload): PresiometryCurvePayload {
+  const x_kind: PresiometryXKind | undefined =
+    payload.x_kind === "radius_mm" || payload.x_kind === "volume_cm3" ? payload.x_kind : undefined;
   const points = payload.points
     .map((p) => ({
       p_kpa: Number(p.p_kpa),
       v_cm3: Number(p.v_cm3),
+      r_mm: p.r_mm == null ? undefined : Number(p.r_mm),
+      dri_mm: p.dri_mm == null ? undefined : Number(p.dri_mm),
       t_s: p.t_s == null ? undefined : Number(p.t_s),
     }))
     .filter((p) => Number.isFinite(p.p_kpa) && Number.isFinite(p.v_cm3));
-  return { points };
+  return { points, ...(x_kind ? { x_kind } : null) };
 }
 
 export function parsePresiometryDelimited(text: string): PresiometryCurvePayload | null {
-  const lines = text
-    .split(/\r?\n/)
-    .map((l) => l.trim())
-    .filter((l) => l.length > 0);
+  const rawLines = text.split(/\r?\n/);
+  const lines = rawLines.map((l) => l.trim()).filter((l) => l.length > 0);
   if (lines.length < 2) return null;
 
-  const points: PresiometryPoint[] = [];
-  for (const line of lines) {
-    const lower = line.toLowerCase();
-    if (lower.includes("pressure") || lower.includes("presi") || lower.includes("p_kpa")) continue;
-    const parts = (line.includes("\t") ? line.split("\t") : line.split(/[;,]/)).map((s) => s.trim());
-    if (parts.length < 2) continue;
-    const p = finiteNumber(parts[0]);
-    const v = finiteNumber(parts[1]);
-    if (p == null || v == null) continue;
-    const t = parts.length >= 3 ? finiteNumber(parts[2]) : null;
-    points.push({ p_kpa: p, v_cm3: v, ...(t != null ? { t_s: t } : null) });
+  const detectDelimiter = (line: string): string => {
+    const counts: Array<{ d: string; c: number }> = [
+      { d: "\t", c: (line.match(/\t/g) ?? []).length },
+      { d: ";", c: (line.match(/;/g) ?? []).length },
+      { d: ",", c: (line.match(/,/g) ?? []).length },
+    ];
+    counts.sort((a, b) => b.c - a.c);
+    return counts[0]!.c > 0 ? counts[0]!.d : ";";
+  };
+
+  const norm = (s: string) =>
+    s
+      .toLowerCase()
+      .trim()
+      .replace(/\s+/g, " ")
+      .replace(/[()]/g, " ")
+      .replace(/[^\p{L}\p{N}_%./+\- ]/gu, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+  const looksLikeHeader = (cells: string[]) => {
+    const joined = norm(cells.join(" "));
+    const hasP =
+      joined.includes("p") &&
+      (joined.includes("kpa") ||
+        joined.includes("mpa") ||
+        joined.includes("bar") ||
+        joined.includes("pressure") ||
+        joined.includes("presi"));
+    const hasV =
+      joined.includes("v") &&
+      (joined.includes("cm3") ||
+        joined.includes("cm^3") ||
+        joined.includes("ml") ||
+        joined.includes("mm3") ||
+        joined.includes("volume") ||
+        joined.includes("volum"));
+    return hasP && hasV;
+  };
+
+  const headerMatchers = {
+    p: (h: string) => {
+      const s = norm(h);
+      return (
+        s === "p" ||
+        s.includes("p ") ||
+        s.includes(" pressure") ||
+        s.includes("presi") ||
+        s.includes("p_kpa") ||
+        s.includes("p kpa") ||
+        s.includes("kpa")
+      );
+    },
+    v: (h: string) => {
+      const s = norm(h);
+      return (
+        s === "v" ||
+        s.includes("volum") ||
+        s.includes("volume") ||
+        s.includes("v_cm3") ||
+        s.includes("v cm3") ||
+        s.includes("cm3") ||
+        s.includes("ml") ||
+        s.includes("mm3") ||
+        // Elast Logger exports
+        s === "r mm" ||
+        s.includes("r mm") ||
+        s.includes("dri mm") ||
+        s.includes("dri") ||
+        s.includes("radius")
+      );
+    },
+    t: (h: string) => {
+      const s = norm(h);
+      return (
+        s === "t" ||
+        s.includes("time") ||
+        s.includes("t_s") ||
+        s.includes("sec") ||
+        s.includes("s ") ||
+        s.includes("seconds") ||
+        // Elast Logger
+        s.includes("pass time")
+      );
+    },
+  } as const;
+
+  let headerIndex = -1;
+  let delim = ";";
+  let headerCells: string[] | null = null;
+  for (let i = 0; i < Math.min(lines.length, 25); i++) {
+    const line = lines[i]!;
+    if (line.startsWith("#") || line.startsWith("//")) continue;
+    const d = detectDelimiter(line);
+    const cells = line.split(d).map((c) => c.trim());
+    if (cells.length < 2) continue;
+    if (looksLikeHeader(cells)) {
+      headerIndex = i;
+      delim = d;
+      headerCells = cells;
+      break;
+    }
   }
 
-  return points.length >= 2 ? { points } : null;
+  const pickIndex = (cells: string[], match: (h: string) => boolean): number => {
+    for (let i = 0; i < cells.length; i++) if (match(cells[i]!)) return i;
+    return -1;
+  };
+
+  let pIdx = 0;
+  let vIdx = 1; // V or R
+  let tIdx = -1;
+  let driIdx = -1;
+  let pFactor = 1; // → kPa
+  let vFactor = 1; // → cm³
+  let x_kind: PresiometryXKind | undefined = undefined;
+
+  if (headerCells) {
+    pIdx = pickIndex(headerCells, headerMatchers.p);
+    vIdx = pickIndex(headerCells, headerMatchers.v);
+    tIdx = pickIndex(headerCells, headerMatchers.t);
+    if (pIdx < 0 || vIdx < 0) return null;
+
+    const pHeader = norm(headerCells[pIdx] ?? "");
+    if (pHeader.includes("mpa")) pFactor = 1000;
+    else if (pHeader.includes("bar")) pFactor = 100;
+
+    const vHeader = norm(headerCells[vIdx] ?? "");
+    if (vHeader.includes("mm3")) vFactor = 1 / 1000;
+    // ml ~ cm3
+
+    if (vHeader.includes("r") && vHeader.includes("mm")) x_kind = "radius_mm";
+    if (vHeader.includes("dri")) driIdx = vIdx;
+    // Prefer explicit R[mm] if present, as per plan.
+    const rIdx = pickIndex(headerCells, (h) => {
+      const s = norm(h);
+      return s === "r mm" || (s.includes("r") && s.includes("mm") && !s.includes("dri"));
+    });
+    if (rIdx >= 0) vIdx = rIdx;
+    driIdx = pickIndex(headerCells, (h) => norm(h).includes("dri") && norm(h).includes("mm"));
+  }
+
+  const parseHmsToSeconds = (raw: string): number | null => {
+    const s = String(raw ?? "").trim();
+    const m = /^(\d{1,2})\s*:\s*(\d{2})\s*:\s*(\d{2})(?:\.(\d+))?$/.exec(s);
+    if (!m) return null;
+    const hh = Number(m[1]);
+    const mm = Number(m[2]);
+    const ss = Number(m[3]);
+    const frac = m[4] ? Number(`0.${m[4]}`) : 0;
+    if (![hh, mm, ss, frac].every((x) => Number.isFinite(x))) return null;
+    return hh * 3600 + mm * 60 + ss + frac;
+  };
+
+  const points: PresiometryPoint[] = [];
+  const start = headerIndex >= 0 ? headerIndex + 1 : 0;
+  for (let i = start; i < lines.length; i++) {
+    const line = lines[i]!;
+    if (line.startsWith("#") || line.startsWith("//")) continue;
+    const parts = (line.includes("\t") ? line.split("\t") : line.split(delim)).map((s) => s.trim());
+    if (parts.length < 2) continue;
+    const pRaw = parts[pIdx];
+    const vRaw = parts[vIdx];
+    const p = finiteNumber(pRaw);
+    const v = finiteNumber(vRaw);
+    if (p == null || v == null) continue;
+    const t =
+      tIdx >= 0 && tIdx < parts.length
+        ? // Elast Logger: "Pass time[hh:mm:ss]"
+          (parseHmsToSeconds(parts[tIdx] ?? "") ?? finiteNumber(parts[tIdx]))
+        : null;
+    const dri = driIdx >= 0 && driIdx < parts.length ? finiteNumber(parts[driIdx]) : null;
+    points.push({
+      p_kpa: p * pFactor,
+      v_cm3: v * vFactor,
+      ...(x_kind === "radius_mm" ? { r_mm: v } : null),
+      ...(dri != null ? { dri_mm: dri } : null),
+      ...(t != null ? { t_s: t } : null),
+    });
+  }
+
+  // If we couldn't infer x_kind but have an Elast Logger header, default to radius.
+  const inferredXKind = x_kind ?? undefined;
+  return points.length >= 2 ? { points, ...(inferredXKind ? { x_kind: inferredXKind } : null) } : null;
 }
 

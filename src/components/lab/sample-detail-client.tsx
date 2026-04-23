@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { jsonLabHeaders } from "@/lib/lab-client-user";
-import { ASTM_D7012_REFERENCE, NEW_TEST_OPTIONS } from "@/lib/test-type-options";
+import { NEW_TEST_OPTIONS } from "@/lib/test-type-options";
 import type { Borehole, Project, Sample, TestType } from "@/types/lab";
 import { Loader2, Plus } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -46,7 +46,7 @@ export function SampleDetailClient({
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(false);
-  const [newType, setNewType] = useState<TestType>("ucs");
+  const [newType, setNewType] = useState<TestType>("presiometry_program_a");
 
   const selectedNewTest = useMemo(
     () => NEW_TEST_OPTIONS.find((o) => o.value === newType),
@@ -177,18 +177,8 @@ export function SampleDetailClient({
                   className="z-[200] max-h-[min(75vh,36rem)] w-[min(calc(100vw-2rem),48rem)] min-w-[min(calc(100vw-2rem),48rem)] max-w-[min(calc(100vw-2rem),48rem)]"
                 >
                   <SelectGroup>
-                    <SelectLabel className="text-muted-foreground whitespace-normal px-2 py-1.5 leading-snug">
-                      {ASTM_D7012_REFERENCE}
-                    </SelectLabel>
-                    {NEW_TEST_OPTIONS.filter((o) => o.group === "astm_d7012").map((t) => (
-                      <SelectItem key={t.value} value={t.value}>
-                        {t.label}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                  <SelectGroup>
-                    <SelectLabel className="text-muted-foreground px-2 py-1.5">Alte încercări</SelectLabel>
-                    {NEW_TEST_OPTIONS.filter((o) => o.group === "other").map((t) => (
+                    <SelectLabel className="text-muted-foreground px-2 py-1.5">Presiometrie</SelectLabel>
+                    {NEW_TEST_OPTIONS.map((t) => (
                       <SelectItem key={t.value} value={t.value}>
                         {t.label}
                       </SelectItem>

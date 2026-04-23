@@ -1,25 +1,13 @@
 import type { TestType } from "@/types/lab";
-import { calculatePointLoad } from "./pointLoad";
-import { calculateTriaxial } from "./triaxial";
-import { calculateUcs } from "./ucs";
 import type { CalculationContext, CalculationFn, CalculationOutput, MeasurementMap } from "./types";
-import { calculateUnitWeight } from "./unitWeight";
-import { calculateYoung } from "./young";
-import { calculateSrEn1926 } from "./srEn1926";
-import { calculateUnconfinedSoil } from "./unconfinedSoil";
-import { calculateAbsorptionPorosityRock } from "./absorptionPorosityRock";
 import { calculatePresiometry } from "./presiometry";
+import { calculatePresiometryProgramA } from "./presiometry-program-a";
+import { calculatePresiometryProgramB } from "./presiometry-program-b";
 
 const registry: Record<TestType, CalculationFn> = {
-  ucs: calculateUcs,
-  point_load: calculatePointLoad,
-  unit_weight: calculateUnitWeight,
-  young: calculateYoung,
-  triaxial_rock: calculateTriaxial,
-  sr_en_1926: calculateSrEn1926,
-  unconfined_soil: calculateUnconfinedSoil,
-  absorption_porosity_rock: calculateAbsorptionPorosityRock,
-  presiometry: calculatePresiometry,
+  presiometry_program_a: calculatePresiometryProgramA,
+  presiometry_program_b: calculatePresiometryProgramB,
+  presiometry_program_c: calculatePresiometry,
 };
 
 export function runCalculationForTestType(

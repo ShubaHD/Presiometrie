@@ -1,13 +1,7 @@
 export type TestType =
-  | "ucs"
-  | "point_load"
-  | "unit_weight"
-  | "young"
-  | "triaxial_rock"
-  | "sr_en_1926"
-  | "unconfined_soil"
-  | "absorption_porosity_rock"
-  | "presiometry";
+  | "presiometry_program_a"
+  | "presiometry_program_b"
+  | "presiometry_program_c";
 
 export type TestStatus = "draft" | "verified" | "approved" | "reported";
 
@@ -47,10 +41,6 @@ export interface Sample {
   notes: string | null;
 }
 
-export type UcsTestMode = "basic" | "instrumented";
-export type UnconfinedSoilTestMode = "basic" | "instrumented";
-export type YoungTestMode = "no_gauges" | "gauges";
-
 export interface TestRow {
   id: string;
   sample_id: string;
@@ -65,36 +55,7 @@ export interface TestRow {
   formula_version: string | null;
   notes: string | null;
   created_at: string;
-  /** UCS: mod de lucru (după migrarea ucs_instrumentation). */
-  ucs_mode?: UcsTestMode | null;
-  /** UCS instrumentat: serie σ–ε (JSON). */
-  ucs_curve_json?: unknown | null;
-  /** UCS: metodă modul, intervale, rezultat ultimului calcul. */
-  ucs_modulus_settings_json?: unknown | null;
-  /** Ce grafice includem în PDF (vezi `TestReportOptions` în lib). */
   report_options_json?: unknown | null;
-  /** Greutate volumică: rânduri m0/m1/m2, mod submers (vezi `unit-weight-submerged.ts`). */
-  unit_weight_submerged_json?: unknown | null;
-  /** UCS: câmpuri raport (rată încărcare, γ manuală etc.). */
-  ucs_report_metadata_json?: unknown | null;
-  /** Point load: text raport PDF structurat (secțiuni structurate în report-service). */
-  point_load_report_metadata_json?: unknown | null;
-  /** Young SR EN 14580: sursa ε (fără mărci: deplasare; cu mărci: strain). */
-  young_mode?: YoungTestMode | null;
-  /** Young SR EN 14580: serie puncte pentru cicluri încărcare/descărcare. */
-  young_curve_json?: unknown | null;
-  /** Young SR EN 14580: setări (σu/σo procente, trim, etc.). */
-  young_settings_json?: unknown | null;
-  /** ISO 13755 rock: 3 specimens mass inputs (JSON). */
-  absorption_porosity_rock_json?: unknown | null;
-  /** ISO 13755 rock: report metadata fields (JSON). */
-  absorption_porosity_rock_report_metadata_json?: unknown | null;
-  /** Triaxial rock Variant B: Hoek–Brown intact fit (σci + mi). */
-  triaxial_hb_intact_json?: unknown | null;
-  /** ISO 17892-7 pământ: basic sau instrumentat (curbă). */
-  unconfined_soil_mode?: UnconfinedSoilTestMode | null;
-  unconfined_soil_curve_json?: unknown | null;
-  unconfined_soil_report_metadata_json?: unknown | null;
   /** SR EN ISO 22476-5: curba presiometrie (JSON). */
   presiometry_curve_json?: unknown | null;
   /** SR EN ISO 22476-5: setări/alegeri calcul (JSON). */

@@ -7,26 +7,16 @@ import { NextResponse } from "next/server";
 
 /** Tipuri care pot fi filtrate la GET (inclusiv vechi înregistrate în DB). */
 const FILTERABLE_TEST_TYPES: TestType[] = [
-  "ucs",
-  "point_load",
-  "unit_weight",
-  "young",
-  "triaxial_rock",
-  "sr_en_1926",
-  "unconfined_soil",
-  "absorption_porosity_rock",
-  "presiometry",
+  "presiometry_program_a",
+  "presiometry_program_b",
+  "presiometry_program_c",
 ];
 
 /** Tipuri permise la POST „Test nou” (fără greutate volumică și SR EN 1926 standalone). */
 const CREATABLE_TEST_TYPES: TestType[] = [
-  "ucs",
-  "point_load",
-  "young",
-  "triaxial_rock",
-  "absorption_porosity_rock",
-  "unconfined_soil",
-  "presiometry",
+  "presiometry_program_a",
+  "presiometry_program_b",
+  "presiometry_program_c",
 ];
 
 type Params = { params: Promise<{ sampleId: string }> };
