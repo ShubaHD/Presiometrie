@@ -206,7 +206,12 @@ export function parsePresiometryDelimited(text: string): PresiometryCurvePayload
         s === "p" ||
         s.includes("p ") ||
         s.includes(" pressure") ||
+        s.includes("pressure") ||
         s.includes("presi") ||
+        s.includes("stress") ||
+        s.includes("pression") ||
+        s.includes("mpa") ||
+        s.includes("bar") ||
         s.includes("p_kpa") ||
         s.includes("p kpa") ||
         s.includes("kpa")
