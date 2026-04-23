@@ -8,7 +8,7 @@
 <body>
   {{#if show.header}}{{> header}}{{/if}}
   {{#if show.sampleInfo}}{{> sample_info}}{{/if}}
-  {{#if show.testConditions}}{{> test_conditions}}{{/if}}
+  {{#if show.testConditions}}{{> test_conditions_presiometry}}{{/if}}
   {{#if show.specimenPhotos}}{{> specimen_photos}}{{/if}}
   {{#if show.measurements}}{{> measurements_table}}{{/if}}
   {{#if show.results}}{{> results_table}}{{/if}}
@@ -23,7 +23,7 @@
       </div>
     {{/if}}
   {{/if}}
-  {{#if show.observations}}{{> observations}}{{/if}}
+  {{#if show.observations}}{{> observations_presiometry}}{{/if}}
   {{#if show.signatures}}{{> signatures}}{{/if}}
   {{#if show.footer}}{{> footer}}{{/if}}
 </body>

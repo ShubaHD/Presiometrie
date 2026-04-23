@@ -3,8 +3,10 @@
   <p>{{#if test.notes}}{{test.notes}}{{else}}—{{/if}}</p>
   <div class="meta-grid muted" style="margin-top: 0.75em;">
     <div class="meta-row"><span class="k">Concluzie</span><span>{{#if test.conclusion}}{{test.conclusion}}{{else}}—{{/if}}</span></div>
+    {{#unless show.presiometryReport}}
     <div class="meta-row"><span class="k">Operator / aparat</span><span>{{#if test.operator_name}}{{test.operator_name}}{{else}}—{{/if}} / {{#if test.device_name}}{{test.device_name}}{{else}}—{{/if}}</span></div>
     <div class="meta-row"><span class="k">Data test</span><span>{{#if test.test_date}}{{test.test_date}}{{else}}—{{/if}}</span></div>
+    {{/unless}}
     <div class="meta-row"><span class="k">Status</span><span>{{test.status}}</span></div>
     <div class="meta-row"><span class="k">Înregistrat de / actualizat de</span><span>{{#if test.created_by}}{{test.created_by}}{{else}}—{{/if}} / {{#if test.updated_by}}{{test.updated_by}}{{else}}—{{/if}}</span></div>
   </div>

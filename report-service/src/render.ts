@@ -19,6 +19,7 @@ const PARTIAL_FILES = [
   "footer",
   "sample_info",
   "test_conditions",
+  "test_conditions_presiometry",
   "iso_17892_7_mandatory",
   "point_load_structured",
   "plt_astm_figures",
@@ -27,6 +28,7 @@ const PARTIAL_FILES = [
   "results_table",
   "ucs_charts",
   "observations",
+  "observations_presiometry",
   "signatures",
 ] as const;
 

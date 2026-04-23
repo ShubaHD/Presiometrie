@@ -1,8 +1,18 @@
 import type { PresiometryCurvePayload } from "@/lib/presiometry-curve";
 import type { CalculationFn, CalculationOutput, MeasurementMap, ResultLine } from "./types";
+import { meanAbscissaGl1, menardEmMpaFromGl1Radius, menardEmMpaFromGl1Volume } from "./presiometry-menard-em";
 import { slopeKpaPerUnitToMpaPerUnit } from "./presiometry-mp";
 import { parsePresiometryManualSettings } from "./presiometry-manual";
 import { buildProgramBRegressionSegments } from "./presiometry-regression-segments";
+import {
+  labelGl1N,
+  labelGl1R2,
+  labelGl1Slope,
+  labelGurN,
+  labelGurR2,
+  labelGurSlope,
+  labelMenardEmGl1,
+} from "./presiometry-result-labels";
 import { detectLoopsByPressure, extractPvPoints, xAxisLabel } from "./presiometry-utils";
 
 function line(
@@ -23,7 +33,7 @@ export const calculatePresiometryProgramB: CalculationFn = (_m: MeasurementMap, 
     final: [],
     warnings: [],
     errors: [],
-    formulaVersion: "pmt-b-v3",
+    formulaVersion: "pmt-b-v4",
   };
 
   const pCtx =
@@ -47,17 +57,19 @@ export const calculatePresiometryProgramB: CalculationFn = (_m: MeasurementMap, 
     const reg = segments.load1.regression;
     const slope = slopeKpaPerUnitToMpaPerUnit(reg.slope != null ? Math.abs(reg.slope) : null);
     const isManual = segments.load1.source === "manual";
+    const xKind = pts[0]!.x_kind;
+    const meanXm = meanAbscissaGl1(segments.load1.xsV);
+    const emMpa =
+      meanXm == null
+        ? null
+        : xKind === "volume_cm3"
+          ? menardEmMpaFromGl1Volume(meanXm, reg.slope)
+          : menardEmMpaFromGl1Radius(meanXm, reg.slope);
     out.final.push(
-      line(
-        40,
-        `pmt_b_load1_${axis.keySuffix}`,
-        isManual ? `GL1: |Δp/Δ${axis.label}|` : `GL1 (30–70%): |Δp/Δ${axis.label}|`,
-        slope,
-        `MPa/${axis.unit}`,
-        3,
-      ),
-      line(45, "pmt_b_load1_r2", "GL1: R²", reg.r2, "—", 3, false),
-      line(48, "pmt_b_load1_n", "GL1: N puncte", reg.n, "—", 0, false),
+      line(40, `pmt_b_load1_${axis.keySuffix}`, labelGl1Slope(axis.label, isManual), slope, `MPa/${axis.unit}`, 3),
+      line(43, "pmt_b_menard_em_gl1_mpa", labelMenardEmGl1(xKind, axis.label), emMpa, "MPa", 2),
+      line(45, "pmt_b_load1_r2", labelGl1R2(), reg.r2, "—", 3, false),
+      line(48, "pmt_b_load1_n", labelGl1N(), reg.n, "—", 0, false),
     );
   } else if (manual?.mode === "manual" && manual.load1) {
     out.warnings.push("GL1 (manual): interval invalid sau prea puține puncte pentru regresie.");
@@ -89,16 +101,9 @@ export const calculatePresiometryProgramB: CalculationFn = (_m: MeasurementMap, 
       return;
     }
     out.final.push(
-      line(
-        order,
-        `pmt_b_loop${i}_gur_${axis.keySuffix}`,
-        `GUR${i}: |Δp/Δ${axis.label}|${isMan ? " (manual)" : " (mijloc buclă)"}`,
-        k,
-        `MPa/${axis.unit}`,
-        3,
-      ),
-      line(order + 10, `pmt_b_loop${i}_gur_r2`, `GUR${i}: R²`, reg.r2, "—", 3, false),
-      line(order + 20, `pmt_b_loop${i}_gur_n`, `GUR${i}: N puncte`, reg.n, "—", 0, false),
+      line(order, `pmt_b_loop${i}_gur_${axis.keySuffix}`, labelGurSlope(i, axis.label, isMan), k, `MPa/${axis.unit}`, 3),
+      line(order + 10, `pmt_b_loop${i}_gur_r2`, labelGurR2(i), reg.r2, "—", 3, false),
+      line(order + 20, `pmt_b_loop${i}_gur_n`, labelGurN(i), reg.n, "—", 0, false),
     );
   });
 

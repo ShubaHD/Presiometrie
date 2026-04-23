@@ -147,10 +147,8 @@ export function buildPointLoadPdfSections(args: {
       { label: "Nume proiect", value: displayText(args.project.name) },
       { label: "Client", value: displayText(args.project.client_name) },
       { label: "Amplasament", value: displayText(args.project.location) },
-      {
-        label: "Număr foraj",
-        value: displayText(args.borehole.name) !== "—" ? displayText(args.borehole.name) : displayText(args.borehole.code),
-      },
+      { label: "Cod foraj", value: displayText(args.borehole.code) },
+      { label: "Număr foraj", value: displayText(args.borehole.name) },
       { label: "Număr probă", value: displayText(args.sample.code) },
       { label: "Adâncime test (m)", value: depthInterval(args.sample.depth_from, args.sample.depth_to) },
       ...(displayText(args.sample.lithology) !== "—"

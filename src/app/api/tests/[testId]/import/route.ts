@@ -16,6 +16,34 @@ function isPresiometryType(tt: unknown): tt is TestType {
   );
 }
 
+/** Normalizează valoarea de dată din antet CSV (ISO sau european DD.MM.YYYY / DD/MM/YYYY). */
+function parseCsvDateToIso(val: string): string | undefined {
+  const v = val.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+  const m = v.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{4})$/);
+  if (!m) return undefined;
+  const dd = m[1]!.padStart(2, "0");
+  const mm = m[2]!.padStart(2, "0");
+  const yyyy = m[3]!;
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+/**
+ * Caută în primele linii ale fișierului o pereche Date/Data … / Data … (fără a necesita antet Elast Logger).
+ */
+function scanPreambleForTestDateIso(text: string): string | undefined {
+  const lines = text.split(/\r?\n/).slice(0, 40);
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line || line.startsWith("#")) continue;
+    const m = line.match(/^(date|data)\s*[,;:\t]\s*(.+)$/i);
+    if (!m) continue;
+    const iso = parseCsvDateToIso(m[2]!.trim());
+    if (iso) return iso;
+  }
+  return undefined;
+}
+
 function parseElastLoggerHeader(text: string): {
   dateIso?: string;
   time?: string;
@@ -36,9 +64,9 @@ function parseElastLoggerHeader(text: string): {
     const key = parts[0]!.toLowerCase();
     const val = parts.slice(1).join(",").trim();
 
-    if (key.startsWith("date")) {
-      // "2026-04-01"
-      if (/^\d{4}-\d{2}-\d{2}$/.test(val)) out.dateIso = val;
+    if (key.startsWith("date") || key === "data") {
+      const iso = parseCsvDateToIso(val);
+      if (iso) out.dateIso = iso;
     } else if (key.startsWith("time")) {
       // "14:22:40"
       if (/^\d{2}:\d{2}:\d{2}$/.test(val)) out.time = val;
@@ -108,17 +136,25 @@ export async function POST(req: Request, { params }: Params) {
 
     const curveJson = clampPresiometryCurveForStorage(parsed);
 
-    const hdr = parseElastLoggerHeader(text);
+    const elastHdr = parseElastLoggerHeader(text);
+    const preambleDateIso = scanPreambleForTestDateIso(text);
+    const dateIsoForTest = elastHdr?.dateIso ?? preambleDateIso;
 
     const testPatch: Record<string, unknown> = {
       presiometry_curve_json: curveJson,
       updated_by: actor.displayName,
       updated_by_user_id: actor.userId,
     };
-    if (hdr?.dateIso) {
-      // store date of test from CSV
-      testPatch.test_date = hdr.dateIso;
+    if (dateIsoForTest) {
+      testPatch.test_date = dateIsoForTest;
     }
+
+    const hdr =
+      elastHdr != null
+        ? { ...elastHdr, dateIso: dateIsoForTest ?? elastHdr.dateIso }
+        : preambleDateIso
+          ? { dateIso: preambleDateIso }
+          : null;
 
     const { error: upCurveErr } = await supabase.from("tests").update(testPatch).eq("id", testId);
     if (upCurveErr) throw upCurveErr;
@@ -213,7 +249,7 @@ export async function POST(req: Request, { params }: Params) {
       ok: true,
       presiometryCurveImported: true,
       points: curveJson.points.length,
-      elastHeaderImported: Boolean(hdr),
+      elastHeaderImported: Boolean(elastHdr),
       storagePath: storageOk ? storagePath : null,
       storageWarning: storageOk ? null : upErr?.message ?? "Upload Storage nereușit",
     });

@@ -6,7 +6,7 @@ import { parsePointLoadReportMetadata } from "./point-load-report-metadata.js";
 import { parseUnconfinedSoilCurvePayload, stressStrainSeriesKpa } from "./unconfined-soil-curve.js";
 import { parseUnconfinedSoilReportMetadata } from "./unconfined-soil-report-metadata.js";
 import { parseUcsReportMetadata } from "./ucs-report-metadata.js";
-import { buildPresiometryPdfOverlays } from "./presiometry-pdf-overlays.js";
+import { buildPresiometryPdfOverlays, detectLoopsByPressure, extractPvPointsPdf, } from "./presiometry-pdf-overlays.js";
 /** Aliniat la `server.ts` — enum Postgres / copieri pot varia ca string. */
 function normalizeTestTypeForPayload(raw) {
     if (raw == null)
@@ -16,6 +16,15 @@ function normalizeTestTypeForPayload(raw) {
         .toLowerCase()
         .replace(/[\u200b-\u200d\ufeff]/g, "");
 }
+/** Rânduri măsurători ascunse în raportul PDF presiometrie (ISO 22476-5). */
+const PRESIOMETRY_OMIT_MEASUREMENT_KEYS = new Set([
+    "pmt_probe_type",
+    "pmt_initial_volume_cm3",
+    "pmt_temperature_c",
+    "pmt_notes_field",
+    "pmt_depth_m",
+]);
+const PRESIOMETRY_OMIT_RESULT_KEYS = new Set(["pmt_pmin_mpa", "pmt_loops_detected", "pmt_depth_m"]);
 function fmtNum(v, decimals = 3) {
     if (v === null || v === undefined)
         return "—";
@@ -50,6 +59,14 @@ function svgLineChart(opts) {
         maxX = Math.max(maxX, s.x1, s.x2);
         minY = Math.min(minY, s.y1, s.y2);
         maxY = Math.max(maxY, s.y1, s.y2);
+    }
+    for (const m of opts.markers ?? []) {
+        if (!Number.isFinite(m.x) || !Number.isFinite(m.y))
+            continue;
+        minX = Math.min(minX, m.x);
+        maxX = Math.max(maxX, m.x);
+        minY = Math.min(minY, m.y);
+        maxY = Math.max(maxY, m.y);
     }
     let dx = maxX - minX;
     let dy = maxY - minY;
@@ -88,7 +105,21 @@ function svgLineChart(opts) {
     const segSvg = (opts.segmentLines ?? [])
         .map((s) => {
         const dash = s.dash ? ` stroke-dasharray="${escXml(s.dash)}"` : "";
-        return `<line x1="${sx(s.x1).toFixed(2)}" y1="${sy(s.y1).toFixed(2)}" x2="${sx(s.x2).toFixed(2)}" y2="${sy(s.y2).toFixed(2)}" stroke="${escXml(s.stroke)}" stroke-width="1.6"${dash} />`;
+        return `<line x1="${sx(s.x1).toFixed(2)}" y1="${sy(s.y1).toFixed(2)}" x2="${sx(s.x2).toFixed(2)}" y2="${sy(s.y2).toFixed(2)}" stroke="${escXml(s.stroke)}" stroke-width="2"${dash} />`;
+    })
+        .join("\n");
+    const markSvg = (opts.markers ?? [])
+        .filter((m) => Number.isFinite(m.x) && Number.isFinite(m.y))
+        .map((m) => {
+        const cx = sx(m.x);
+        const cy = sy(m.y);
+        const fill = escXml(m.fill ?? "#c0392b");
+        const circle = `<circle cx="${cx.toFixed(2)}" cy="${cy.toFixed(2)}" r="4" fill="${fill}" stroke="#fff" stroke-width="1.2"/>`;
+        const lab = (m.label ?? "").trim();
+        const text = lab.length > 0
+            ? `<text class="m" x="${(cx + 6).toFixed(1)}" y="${(cy - 5).toFixed(1)}">${escXml(lab)}</text>`
+            : "";
+        return `${circle}${text}`;
     })
         .join("\n");
     const axis = `
@@ -106,6 +137,7 @@ function svgLineChart(opts) {
   ${bandsSvg}
   <path d="${path}" fill="none" stroke="#2a6fdb" stroke-width="1.5" />
   ${segSvg}
+  ${markSvg}
   <text class="m" x="${padL + innerW / 2}" y="${height - 10}" text-anchor="middle">${escXml(opts.xLabel)}</text>
   <text class="m" x="14" y="${padT + innerH / 2}" transform="rotate(-90 14 ${padT + innerH / 2})" text-anchor="middle">${escXml(opts.yLabel)}</text>
 </svg>`;
@@ -2412,6 +2444,8 @@ export async function buildPresiometryPayload(supabase, testId, templateCode, te
     show.soilOnlyTestConditions = false;
     show.pointLoadStructured = false;
     show.pltAstmFigures = false;
+    /** Raport presiometrie: partial dedicat (fără câmpuri specifice încercări pe rocă / sol). */
+    show.presiometryReport = true;
     const wantSpecimenPhotos = specimenPhotosIncludedInReport(test.report_options_json);
     let beforeSrc = null;
     let afterSrc = null;
@@ -2469,6 +2503,50 @@ export async function buildPresiometryPayload(supabase, testId, templateCode, te
             seatingR0: xKind === "radius_mm" ? seatingR0 : curvePts[0].x,
         })
         : null;
+    const pvForMarkers = extractPvPointsPdf(curveObj);
+    const v0pr = pvForMarkers[0]?.x ?? 0;
+    const loopMarkersPr = [];
+    const loopMarkersPdr = [];
+    const yMpa = (pk) => pk / 1000;
+    if (pvForMarkers.length >= 2) {
+        loopMarkersPr.push({ x: pvForMarkers[0].x, y: yMpa(pvForMarkers[0].p_kpa), fill: "#1e8449" });
+        const lastPv = pvForMarkers[pvForMarkers.length - 1];
+        loopMarkersPr.push({ x: lastPv.x, y: yMpa(lastPv.p_kpa), fill: "#7b241c" });
+        loopMarkersPdr.push({
+            x: xKind === "radius_mm" ? pvForMarkers[0].x - seatingR0 : pvForMarkers[0].x - v0pr,
+            y: yMpa(pvForMarkers[0].p_kpa),
+            fill: "#1e8449",
+        });
+        loopMarkersPdr.push({
+            x: xKind === "radius_mm" ? lastPv.x - seatingR0 : lastPv.x - v0pr,
+            y: yMpa(lastPv.p_kpa),
+            fill: "#7b241c",
+        });
+        const loopsM = detectLoopsByPressure(pvForMarkers);
+        loopsM.slice(0, 10).forEach((w, idx) => {
+            const i = idx + 1;
+            const peak = pvForMarkers[w.peakIndex];
+            const valley = pvForMarkers[w.valleyIndex];
+            const nx = pvForMarkers[w.nextPeakIndex];
+            const pushPair = (xPr, y, label, fill) => {
+                loopMarkersPr.push({ x: xPr, y, label, fill });
+                loopMarkersPdr.push({
+                    x: xKind === "radius_mm" ? xPr - seatingR0 : xPr - v0pr,
+                    y,
+                    label,
+                    fill,
+                });
+            };
+            if (peak)
+                pushPair(peak.x, yMpa(peak.p_kpa), `Vf${i}`, "#ca6f1e");
+            if (valley)
+                pushPair(valley.x, yMpa(valley.p_kpa), `Vl${i}`, "#6c3483");
+            if (nx)
+                pushPair(nx.x, yMpa(nx.p_kpa), `Vr${i}`, "#ca6f1e");
+        });
+    }
+    const chartMarkersPr = loopMarkersPr.length ? loopMarkersPr : undefined;
+    const chartMarkersPdr = loopMarkersPdr.length ? loopMarkersPdr : undefined;
     const svgPR = curvePts.length >= 2
         ? svgLineChart({
             title: xKind === "radius_mm" ? "Curba p–R" : "Curba p–V",
@@ -2478,6 +2556,7 @@ export async function buildPresiometryPayload(supabase, testId, templateCode, te
             padAxesRatio: tt !== "presiometry_program_c" ? 0.06 : undefined,
             bands: overlaysPdf?.bandsPr,
             segmentLines: overlaysPdf?.linesPr,
+            markers: chartMarkersPr,
         })
         : null;
     const svgPdR = curvePts.length >= 2
@@ -2492,6 +2571,7 @@ export async function buildPresiometryPayload(supabase, testId, templateCode, te
             padAxesRatio: tt !== "presiometry_program_c" ? 0.06 : undefined,
             bands: overlaysPdf?.bandsPdr,
             segmentLines: overlaysPdf?.linesPdr,
+            markers: chartMarkersPdr,
         })
         : null;
     const programLabel = tt === "presiometry_program_a" ? "Program A" : tt === "presiometry_program_b" ? "Program B" : "Program C";
@@ -2561,7 +2641,9 @@ export async function buildPresiometryPayload(supabase, testId, templateCode, te
             updated_by: test.updated_by ?? null,
         },
         measurements: (() => {
-            const base = (measurements ?? []).map((m) => ({
+            const base = (measurements ?? [])
+                .filter((m) => !PRESIOMETRY_OMIT_MEASUREMENT_KEYS.has(String(m.key ?? "")))
+                .map((m) => ({
                 label: String(m.label ?? m.key ?? ""),
                 key: String(m.key ?? ""),
                 value: fmtNum(m.value, 3),
@@ -2590,7 +2672,9 @@ export async function buildPresiometryPayload(supabase, testId, templateCode, te
             out.unshift(axisNote);
             return out;
         })(),
-        results: (results ?? []).map((r) => ({
+        results: (results ?? [])
+            .filter((r) => !PRESIOMETRY_OMIT_RESULT_KEYS.has(String(r.key ?? "")))
+            .map((r) => ({
             label: String(r.label ?? r.key ?? ""),
             key: String(r.key ?? ""),
             value: fmtNum(r.value, r.decimals),
