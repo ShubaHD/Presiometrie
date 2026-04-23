@@ -9,7 +9,7 @@ import { Separator } from "@/components/ui/separator";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { jsonLabHeaders } from "@/lib/lab-client-user";
+import { jsonLabHeaders, labUserFetchHeaders } from "@/lib/lab-client-user";
 import { MEASUREMENT_PRESETS } from "@/lib/measurement-presets";
 import { parsePresiometryCurvePayload } from "@/lib/presiometry-curve";
 import { validateMeasurementsForTestType } from "@/lib/measurement-schemas";
@@ -344,7 +344,12 @@ export function TestWorkspace({
     try {
       const fd = new FormData();
       fd.set("file", file);
-      const res = await fetch(`/api/tests/${testId}/import`, { method: "POST", body: fd, headers: jsonLabHeaders() });
+      const res = await fetch(`/api/tests/${testId}/import`, {
+        method: "POST",
+        body: fd,
+        // Let the browser set multipart boundaries; do not send JSON Content-Type here.
+        headers: labUserFetchHeaders(),
+      });
       const json = (await res.json()) as { error?: string; points?: number; presiometryCurveImported?: boolean };
       if (!res.ok) throw new Error(json.error ?? "Eroare import.");
       setMsg(
