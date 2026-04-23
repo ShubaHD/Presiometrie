@@ -81,6 +81,18 @@ function axisDomainPadded(values: number[], padRatio = 0.06): [number, number] |
   return [lo - pad, hi + pad];
 }
 
+/** Ticks X pentru R (mm): valori pare din 2 în 2, acoperind domeniul afișat. */
+function xTicksEvery2Mm(domain: [number, number] | undefined, dataLo: number, dataHi: number): number[] {
+  const lo = domain ? Math.min(domain[0], domain[1]) : Math.min(dataLo, dataHi);
+  const hi = domain ? Math.max(domain[0], domain[1]) : Math.max(dataLo, dataHi);
+  if (!Number.isFinite(lo) || !Number.isFinite(hi) || hi < lo) return [];
+  const start = Math.floor(lo / 2) * 2;
+  const end = Math.ceil(hi / 2) * 2;
+  const ticks: number[] = [];
+  for (let v = start; v <= end + 1e-9; v += 2) ticks.push(Math.round(v));
+  return ticks;
+}
+
 function toIndex(s: string): number | null {
   const n = Number(String(s ?? "").trim());
   return Number.isFinite(n) ? Math.floor(n) : null;
@@ -232,6 +244,14 @@ export function TestWorkspace({
     const pdrXDomain = axisDomainPadded(pdr.map((p) => p.x));
     return { pr, pdr, loops, w3070, prXDomain, pdrXDomain, nPoints: pvPts.length, r0 };
   }, [curve, xKind, seatingRmm]);
+
+  const prXAxisRadiusTicks = useMemo(() => {
+    if (xKind !== "radius_mm" || chartSeries.pr.length === 0) return null;
+    const xs = chartSeries.pr.map((p) => p.x);
+    const d0 = Math.min(...xs);
+    const d1 = Math.max(...xs);
+    return xTicksEvery2Mm(chartSeries.prXDomain, d0, d1);
+  }, [xKind, chartSeries.pr, chartSeries.prXDomain]);
 
   const manualSettings = useMemo(() => {
     if (!test) return null;
@@ -868,6 +888,14 @@ export function TestWorkspace({
                           type="number"
                           dataKey="x"
                           domain={chartSeries.prXDomain ?? ["auto", "auto"]}
+                          ticks={
+                            xKind === "radius_mm" && prXAxisRadiusTicks?.length ? prXAxisRadiusTicks : undefined
+                          }
+                          tickFormatter={(v) =>
+                            xKind === "radius_mm"
+                              ? String(Math.round(typeof v === "number" ? v : Number(v)))
+                              : String(typeof v === "number" ? v : Number(v))
+                          }
                           tick={{ fontSize: 11 }}
                           label={{ value: xLabel, position: "bottom", offset: 0, style: { fontSize: 11 } }}
                         />
