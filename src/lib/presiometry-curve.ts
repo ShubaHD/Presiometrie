@@ -164,8 +164,6 @@ export function parsePresiometryDelimited(text: string): PresiometryCurvePayload
         // Elast Logger exports
         s === "r mm" ||
         s.includes("r mm") ||
-        s.includes("dri mm") ||
-        s.includes("dri") ||
         s.includes("radius") ||
         s.includes("caliper") ||
         s.includes("diameter") ||
@@ -222,9 +220,48 @@ export function parsePresiometryDelimited(text: string): PresiometryCurvePayload
 
   if (headerCells) {
     pIdx = pickIndex(headerCells, headerMatchers.p);
-    vIdx = pickIndex(headerCells, headerMatchers.v);
     tIdx = pickIndex(headerCells, headerMatchers.t);
-    if (pIdx < 0 || vIdx < 0) return null;
+    if (pIdx < 0) return null;
+
+    const rIdx = pickIndex(headerCells, (h) => {
+      const s = norm(h);
+      return s === "r mm" || (s.includes("r") && s.includes("mm") && !s.includes("dri"));
+    });
+    const dIdx = pickIndex(headerCells, (h) => {
+      const s = norm(h);
+      const isDri = s.includes("dri");
+      return (
+        !isDri &&
+        (s.includes("diameter") ||
+          s.includes("diametru") ||
+          s === "d mm" ||
+          (s.includes("d") && s.includes("mm") && !s.includes("pressure") && !s.includes("pres")))
+      );
+    });
+    const volIdx = pickIndex(headerCells, (h) => {
+      const s = norm(h);
+      return (
+        s.includes("cm3") ||
+        s.includes("cm^3") ||
+        s.includes("ml") ||
+        s.includes("mm3") ||
+        s.includes("volume") ||
+        s.includes("volum") ||
+        s.includes("v_cm3") ||
+        s.includes("v cm3")
+      );
+    });
+    driIdx = pickIndex(headerCells, (h) => {
+      const s = norm(h);
+      return s.includes("dri") && s.includes("mm");
+    });
+
+    // Prefer R (caliper), then diameter, then volume; only fall back to dRi if nothing else matches.
+    if (rIdx >= 0) vIdx = rIdx;
+    else if (dIdx >= 0) vIdx = dIdx;
+    else if (volIdx >= 0) vIdx = volIdx;
+    else if (driIdx >= 0) vIdx = driIdx;
+    else return null;
 
     const pHeader = norm(headerCells[pIdx] ?? "");
     if (pHeader.includes("mpa")) pFactor = 1000;
@@ -247,14 +284,10 @@ export function parsePresiometryDelimited(text: string): PresiometryCurvePayload
       x_kind = "radius_mm";
       xScale = 0.5;
     }
-    if (vHeader.includes("dri")) driIdx = vIdx;
-    // Prefer explicit R[mm] if present, as per plan.
-    const rIdx = pickIndex(headerCells, (h) => {
-      const s = norm(h);
-      return s === "r mm" || (s.includes("r") && s.includes("mm") && !s.includes("dri"));
-    });
-    if (rIdx >= 0) vIdx = rIdx;
-    driIdx = pickIndex(headerCells, (h) => norm(h).includes("dri") && norm(h).includes("mm"));
+    if (volIdx >= 0 && vIdx === volIdx) {
+      x_kind = undefined;
+      xScale = 1;
+    }
   }
 
   const parseHmsToSeconds = (raw: string): number | null => {
