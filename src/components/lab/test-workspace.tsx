@@ -150,10 +150,22 @@ function PresiometryChartZoomShell({
           </div>
           <TransformComponent
             wrapperClass="w-full max-w-full overflow-hidden rounded-md border border-border/80 bg-background"
-            wrapperStyle={{ height: 280, touchAction: disableTransform ? undefined : "none" }}
-            contentStyle={{ width: "100%", height: 280 }}
+            wrapperStyle={{
+              width: "100%",
+              maxWidth: "100%",
+              height: 280,
+              touchAction: disableTransform ? undefined : "none",
+            }}
+            contentClass="!block !h-[280px] !w-full !min-h-[280px] !min-w-0 !max-w-full"
+            contentStyle={{
+              width: "100%",
+              maxWidth: "100%",
+              height: 280,
+              minHeight: 280,
+              display: "block",
+            }}
           >
-            <div className="h-[280px] w-full">{children}</div>
+            {children}
           </TransformComponent>
         </div>
       )}
@@ -970,7 +982,7 @@ export function TestWorkspace({
                       onNavModeChange={setChartNavPr}
                       disableTransform={chartPick != null}
                     >
-                      <ResponsiveContainer width="100%" height="100%">
+                      <ResponsiveContainer width="100%" height={280}>
                         <LineChart data={chartSeries.pr} margin={{ top: 8, right: 12, left: 8, bottom: 8 }}>
                           <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
                           <XAxis
@@ -1106,7 +1118,7 @@ export function TestWorkspace({
                       onNavModeChange={setChartNavPdr}
                       disableTransform={false}
                     >
-                      <ResponsiveContainer width="100%" height="100%">
+                      <ResponsiveContainer width="100%" height={280}>
                         <LineChart data={chartSeries.pdr} margin={{ top: 8, right: 12, left: 8, bottom: 8 }}>
                           <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
                           <XAxis
