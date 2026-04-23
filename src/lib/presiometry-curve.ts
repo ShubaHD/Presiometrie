@@ -115,7 +115,17 @@ export function parsePresiometryDelimited(text: string): PresiometryCurvePayload
         joined.includes("mm3") ||
         joined.includes("volume") ||
         joined.includes("volum"));
-    return hasP && hasV;
+    const hasR =
+      joined.includes("r") &&
+      (joined.includes("mm") ||
+        joined.includes("radius") ||
+        joined.includes("caliper") ||
+        joined.includes("dri") ||
+        joined.includes("delta r"));
+    const hasD =
+      (joined.includes("d") || joined.includes("diam")) &&
+      (joined.includes("mm") || joined.includes("diameter") || joined.includes("diametru"));
+    return hasP && (hasV || hasR || hasD);
   };
 
   const headerMatchers = {
@@ -147,7 +157,12 @@ export function parsePresiometryDelimited(text: string): PresiometryCurvePayload
         s.includes("r mm") ||
         s.includes("dri mm") ||
         s.includes("dri") ||
-        s.includes("radius")
+        s.includes("radius") ||
+        s.includes("caliper") ||
+        s.includes("diameter") ||
+        s.includes("diametru") ||
+        // common: "D[mm]" or "D mm"
+        (s === "d mm" || (s.includes("d") && s.includes("mm")))
       );
     },
     t: (h: string) => {
@@ -193,6 +208,7 @@ export function parsePresiometryDelimited(text: string): PresiometryCurvePayload
   let driIdx = -1;
   let pFactor = 1; // → kPa
   let vFactor = 1; // → cm³
+  let xScale = 1; // raw X -> stored x (for diameter->radius)
   let x_kind: PresiometryXKind | undefined = undefined;
 
   if (headerCells) {
@@ -209,7 +225,19 @@ export function parsePresiometryDelimited(text: string): PresiometryCurvePayload
     if (vHeader.includes("mm3")) vFactor = 1 / 1000;
     // ml ~ cm3
 
-    if (vHeader.includes("r") && vHeader.includes("mm")) x_kind = "radius_mm";
+    if ((vHeader.includes("r") && vHeader.includes("mm")) || vHeader.includes("radius") || vHeader.includes("caliper")) {
+      x_kind = "radius_mm";
+    }
+    // If the device exports diameter, store radius_mm = D/2.
+    if (
+      vHeader.includes("diameter") ||
+      vHeader.includes("diametru") ||
+      // patterns like "d mm" or "d[mm]"
+      (vHeader.includes("d") && vHeader.includes("mm") && !vHeader.includes("dri"))
+    ) {
+      x_kind = "radius_mm";
+      xScale = 0.5;
+    }
     if (vHeader.includes("dri")) driIdx = vIdx;
     // Prefer explicit R[mm] if present, as per plan.
     const rIdx = pickIndex(headerCells, (h) => {
@@ -244,6 +272,7 @@ export function parsePresiometryDelimited(text: string): PresiometryCurvePayload
     const p = finiteNumber(pRaw);
     const v = finiteNumber(vRaw);
     if (p == null || v == null) continue;
+    const xStored = x_kind === "radius_mm" ? v * xScale : v;
     const t =
       tIdx >= 0 && tIdx < parts.length
         ? // Elast Logger: "Pass time[hh:mm:ss]"
@@ -252,8 +281,8 @@ export function parsePresiometryDelimited(text: string): PresiometryCurvePayload
     const dri = driIdx >= 0 && driIdx < parts.length ? finiteNumber(parts[driIdx]) : null;
     points.push({
       p_kpa: p * pFactor,
-      v_cm3: v * vFactor,
-      ...(x_kind === "radius_mm" ? { r_mm: v } : null),
+      v_cm3: x_kind === "radius_mm" ? xStored : v * vFactor,
+      ...(x_kind === "radius_mm" ? { r_mm: xStored } : null),
       ...(dri != null ? { dri_mm: dri } : null),
       ...(t != null ? { t_s: t } : null),
     });
