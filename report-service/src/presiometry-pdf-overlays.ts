@@ -32,16 +32,29 @@ export type PresiometryRegressionSegment = {
   indexTo: number | null;
 };
 
-function signEps(x: number): -1 | 0 | 1 {
-  const eps = 1e-9;
-  if (!Number.isFinite(x) || Math.abs(x) <= eps) return 0;
-  return x > 0 ? 1 : -1;
-}
-
+/** Păstrați în sync cu `src/modules/calculations/presiometry-utils.ts` — `detectLoopsByPressure`. */
 export function detectLoopsByPressure(pts: PVPoint[]): LoopWindow[] {
   if (pts.length < 5) return [];
+
+  let pMin = Infinity;
+  let pMax = -Infinity;
+  for (const p of pts) {
+    if (!Number.isFinite(p.p_kpa)) continue;
+    pMin = Math.min(pMin, p.p_kpa);
+    pMax = Math.max(pMax, p.p_kpa);
+  }
+  if (!Number.isFinite(pMin) || !Number.isFinite(pMax) || !(pMax > pMin)) return [];
+  const span = pMax - pMin;
+  const stepTolKpa = Math.max(20, span * 0.0012);
+  const excursionMinKpa = Math.max(80, span * 0.007);
+
   const dir: Array<-1 | 0 | 1> = [];
-  for (let i = 1; i < pts.length; i++) dir.push(signEps(pts[i]!.p_kpa - pts[i - 1]!.p_kpa));
+  for (let i = 1; i < pts.length; i++) {
+    const dp = pts[i]!.p_kpa - pts[i - 1]!.p_kpa;
+    if (!Number.isFinite(dp) || Math.abs(dp) <= stepTolKpa) dir.push(0);
+    else dir.push(dp > 0 ? 1 : -1);
+  }
+
   const runs: Array<{ d: -1 | 1; from: number; to: number }> = [];
   let i = 0;
   while (i < dir.length) {
@@ -54,6 +67,7 @@ export function detectLoopsByPressure(pts: PVPoint[]): LoopWindow[] {
     runs.push({ d, from, to });
     i = to + 1;
   }
+
   const loops: LoopWindow[] = [];
   for (let r = 0; r + 2 < runs.length; r++) {
     const a = runs[r]!;
@@ -65,8 +79,17 @@ export function detectLoopsByPressure(pts: PVPoint[]): LoopWindow[] {
     const nextPeakIndex = c.to + 1;
     if (peakIndex <= 0 || valleyIndex <= peakIndex || nextPeakIndex <= valleyIndex || nextPeakIndex >= pts.length)
       continue;
+    if (valleyIndex - peakIndex < 2 || nextPeakIndex - valleyIndex < 2) continue;
+    const pk = pts[peakIndex]!.p_kpa;
+    const vl = pts[valleyIndex]!.p_kpa;
+    const nx = pts[nextPeakIndex]!.p_kpa;
+    if (!Number.isFinite(pk) || !Number.isFinite(vl) || !Number.isFinite(nx)) continue;
+    const unloadDp = pk - vl;
+    const reloadDp = nx - vl;
+    if (unloadDp < excursionMinKpa || reloadDp < excursionMinKpa) continue;
     loops.push({ peakIndex, valleyIndex, nextPeakIndex });
   }
+
   const out: LoopWindow[] = [];
   for (const w of loops) {
     const prev = out[out.length - 1];
@@ -353,9 +376,36 @@ export function buildProgramBRegressionSegmentsPdf(
   return { load1, loops: loopSegs };
 }
 
+const PRESIOMETRY_MANUAL_LOOP_UI_SLOTS_PDF = 6;
+
+function normalizeLoopsRawToSlotsPdf(loopsRaw: unknown): unknown[] {
+  let arr: unknown[] = [];
+  if (Array.isArray(loopsRaw)) arr = loopsRaw;
+  else if (loopsRaw && typeof loopsRaw === "object") {
+    const rec = loopsRaw as Record<string, unknown>;
+    const keys = Object.keys(rec)
+      .filter((k) => /^\d+$/.test(k))
+      .sort((a, b) => Number(a) - Number(b));
+    arr = keys.map((k) => rec[k]);
+  }
+  const slots: unknown[] = [];
+  for (let i = 0; i < PRESIOMETRY_MANUAL_LOOP_UI_SLOTS_PDF; i++) slots.push(arr[i] ?? null);
+  return slots;
+}
+
 export function parsePresiometryManualSettingsPdf(raw: unknown): PresiometryManualSettings | null {
-  if (!raw || typeof raw !== "object") return null;
-  const o = raw as Record<string, unknown>;
+  let doc: unknown = raw;
+  if (typeof doc === "string") {
+    const s = doc.trim();
+    if (!s) return null;
+    try {
+      doc = JSON.parse(s) as unknown;
+    } catch {
+      return null;
+    }
+  }
+  if (!doc || typeof doc !== "object") return null;
+  const o = doc as Record<string, unknown>;
   const mode = o.mode === "manual" ? "manual" : o.mode === "auto" ? "auto" : null;
   if (!mode) return null;
   const x_kind: PresiometryXKind | undefined =
@@ -363,22 +413,50 @@ export function parsePresiometryManualSettingsPdf(raw: unknown): PresiometryManu
   const parseRange = (v: unknown): { from: number; to: number } | null => {
     if (!v || typeof v !== "object") return null;
     const r = v as Record<string, unknown>;
-    const from = typeof r.from === "number" ? Math.floor(r.from) : Number(r.from);
-    const to = typeof r.to === "number" ? Math.floor(r.to) : Number(r.to);
-    if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from) return null;
-    return { from: Math.max(0, from), to: Math.max(0, to) };
+    const a = typeof r.from === "number" ? Math.floor(r.from) : Number(r.from);
+    const b = typeof r.to === "number" ? Math.floor(r.to) : Number(r.to);
+    if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
+    const from = Math.max(0, Math.min(a, b));
+    const to = Math.max(0, Math.max(a, b));
+    if (to <= from) return null;
+    return { from, to };
   };
   const load1 = parseRange(o.load1);
-  const loopsRaw = o.loops;
-  const loops = Array.isArray(loopsRaw)
-    ? loopsRaw
-        .map((lr) => {
-          if (!lr || typeof lr !== "object") return null;
-          const r = lr as Record<string, unknown>;
-          return { unload: parseRange(r.unload), reload: parseRange(r.reload), gur: parseRange(r.gur) };
-        })
-        .filter(Boolean) as PresiometryManualSettings["loops"]
-    : undefined;
+  const slots = normalizeLoopsRawToSlotsPdf(o.loops);
+  const loops: NonNullable<PresiometryManualSettings["loops"]> = slots.map((lr) => {
+    if (!lr || typeof lr !== "object") {
+      return { unload: null, reload: null, gur: null };
+    }
+    const r = lr as Record<string, unknown>;
+    const uo = r.unload;
+    const nestedUnload =
+      uo && typeof uo === "object"
+        ? parseRange(uo)
+        : parseRange(
+              r.unload_from != null || r.unload_to != null || r["unloadFrom"] != null || r["unloadTo"] != null
+                ? { from: r.unload_from ?? r["unloadFrom"], to: r.unload_to ?? r["unloadTo"] }
+                : null,
+            ) ?? parseRange(r.Unload);
+    const ro = r.reload;
+    const nestedReload =
+      ro && typeof ro === "object"
+        ? parseRange(ro)
+        : parseRange(
+              r.reload_from != null || r.reload_to != null || r["reloadFrom"] != null || r["reloadTo"] != null
+                ? { from: r.reload_from ?? r["reloadFrom"], to: r.reload_to ?? r["reloadTo"] }
+                : null,
+            ) ?? parseRange(r.Reload);
+    const go = r.gur;
+    const nestedGur =
+      go && typeof go === "object"
+        ? parseRange(go)
+        : parseRange(
+              r.gur_from != null || r.gur_to != null || r["gurFrom"] != null || r["gurTo"] != null
+                ? { from: r.gur_from ?? r["gurFrom"], to: r.gur_to ?? r["gurTo"] }
+                : null,
+            ) ?? parseRange(r.Gur);
+    return { unload: nestedUnload, reload: nestedReload, gur: nestedGur };
+  });
   return { mode, x_kind, load1, loops };
 }
 

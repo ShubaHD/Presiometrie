@@ -35,7 +35,10 @@ import {
   YAxis,
 } from "recharts";
 import type { PresiometryManualSettings } from "@/modules/calculations/presiometry-manual";
-import { parsePresiometryManualSettings } from "@/modules/calculations/presiometry-manual";
+import {
+  parsePresiometryManualSettings,
+  PRESIOMETRY_MANUAL_LOOP_UI_SLOTS,
+} from "@/modules/calculations/presiometry-manual";
 import type { PresiometryRegressionSegment } from "@/modules/calculations/presiometry-regression-segments";
 import {
   buildProgramARegressionSegments,
@@ -391,7 +394,7 @@ export function TestWorkspace({
     mode: "auto" as "auto" | "manual",
     load1_from: "",
     load1_to: "",
-    loops: Array.from({ length: 6 }).map(() => ({
+    loops: Array.from({ length: PRESIOMETRY_MANUAL_LOOP_UI_SLOTS }).map(() => ({
       unload_from: "",
       unload_to: "",
       reload_from: "",
@@ -640,36 +643,48 @@ export function TestWorkspace({
         }
       : false;
 
+  /** Payload salvat în `presiometry_settings_json`; folosit și înainte de «Rulează calcule» ca serverul să vadă același mod ca în UI. */
+  const buildPresiometrySettingsPayload = useCallback((): Record<string, unknown> | null => {
+    if (okType !== "presiometry_program_a" && okType !== "presiometry_program_b") return null;
+    const toInt = (s: string) => {
+      const n = Number(String(s ?? "").trim());
+      return Number.isFinite(n) ? Math.floor(n) : null;
+    };
+    const range = (a: string, b: string) => {
+      const u = toInt(a);
+      const v = toInt(b);
+      if (u == null || v == null) return null;
+      const from = Math.min(u, v);
+      const to = Math.max(u, v);
+      if (to <= from) return null;
+      return { from, to };
+    };
+    return {
+      mode: manualDraft.mode,
+      x_kind: xKind,
+      load1: manualDraft.mode === "manual" ? range(manualDraft.load1_from, manualDraft.load1_to) : null,
+      loops:
+        manualDraft.mode === "manual"
+          ? manualDraft.loops.map((l) => ({
+              unload: range(l.unload_from, l.unload_to),
+              reload: range(l.reload_from, l.reload_to),
+              gur: range(l.gur_from, l.gur_to),
+            }))
+          : [],
+    };
+  }, [okType, manualDraft, xKind]);
+
   const saveManualSettings = async () => {
     if (!okType) return;
     setBusy(true);
     setErr(null);
     setMsg(null);
     try {
-      const toInt = (s: string) => {
-        const n = Number(String(s ?? "").trim());
-        return Number.isFinite(n) ? Math.floor(n) : null;
-      };
-      const range = (a: string, b: string) => {
-        const from = toInt(a);
-        const to = toInt(b);
-        if (from == null || to == null) return null;
-        if (to <= from) return null;
-        return { from, to };
-      };
-      const payload = {
-        mode: manualDraft.mode,
-        x_kind: xKind,
-        load1: manualDraft.mode === "manual" ? range(manualDraft.load1_from, manualDraft.load1_to) : null,
-        loops:
-          manualDraft.mode === "manual"
-            ? manualDraft.loops.map((l) => ({
-                unload: range(l.unload_from, l.unload_to),
-                reload: range(l.reload_from, l.reload_to),
-                gur: range(l.gur_from, l.gur_to),
-              }))
-            : [],
-      };
+      const payload = buildPresiometrySettingsPayload();
+      if (!payload) {
+        setBusy(false);
+        return;
+      }
 
       const res = await fetch(`/api/tests/${testId}`, {
         method: "PATCH",
@@ -774,6 +789,19 @@ export function TestWorkspace({
     setMsg(null);
     setErr(null);
     try {
+      const presPayload = buildPresiometrySettingsPayload();
+      if (presPayload) {
+        const patchRes = await fetch(`/api/tests/${testId}`, {
+          method: "PATCH",
+          headers: jsonLabHeaders(),
+          body: JSON.stringify({ presiometry_settings_json: presPayload }),
+        });
+        const patchJson = (await patchRes.json()) as { error?: string };
+        if (!patchRes.ok) {
+          throw new Error(patchJson.error ?? "Eroare sincronizare setări presiometrie înainte de calcul.");
+        }
+      }
+
       const res = await fetch(`/api/tests/${testId}/calculate`, { method: "POST", headers: jsonLabHeaders() });
       const json = (await res.json()) as { ok?: boolean; error?: string; errors?: string[] };
       if (!res.ok) throw new Error(json.error ?? (json.errors?.[0] ?? "Eroare calcul."));

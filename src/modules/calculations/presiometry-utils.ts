@@ -31,12 +31,6 @@ export function extractPvPoints(curve: PresiometryCurvePayload | null): PVPoint[
   return [...pts].sort((a, b) => (a.t_s ?? 0) - (b.t_s ?? 0));
 }
 
-function signEps(x: number): -1 | 0 | 1 {
-  const eps = 1e-9;
-  if (!Number.isFinite(x) || Math.abs(x) <= eps) return 0;
-  return x > 0 ? 1 : -1;
-}
-
 export type LoopWindow = {
   /** Indices in the original `pts` array. */
   peakIndex: number;
@@ -44,10 +38,33 @@ export type LoopWindow = {
   nextPeakIndex: number;
 };
 
+/**
+ * Bucle = secvență încărcare → descărcare → reîncărcare în **presiune**.
+ * Fără filtre, zgomotul pas-cu-pas (Δp mic) creează multe triplete +/−/+ false.
+ */
 export function detectLoopsByPressure(pts: PVPoint[]): LoopWindow[] {
   if (pts.length < 5) return [];
+
+  let pMin = Infinity;
+  let pMax = -Infinity;
+  for (const p of pts) {
+    if (!Number.isFinite(p.p_kpa)) continue;
+    pMin = Math.min(pMin, p.p_kpa);
+    pMax = Math.max(pMax, p.p_kpa);
+  }
+  if (!Number.isFinite(pMin) || !Number.isFinite(pMax) || !(pMax > pMin)) return [];
+  const span = pMax - pMin;
+  /** Δp sub acest prag nu schimbă „sensul” (plateu / zgomot digitizare). */
+  const stepTolKpa = Math.max(20, span * 0.0012);
+  /** Amplitudine minimă descărcare și reîncărcare față de vale ca bucla să fie fizică. */
+  const excursionMinKpa = Math.max(80, span * 0.007);
+
   const dir: Array<-1 | 0 | 1> = [];
-  for (let i = 1; i < pts.length; i++) dir.push(signEps(pts[i]!.p_kpa - pts[i - 1]!.p_kpa));
+  for (let i = 1; i < pts.length; i++) {
+    const dp = pts[i]!.p_kpa - pts[i - 1]!.p_kpa;
+    if (!Number.isFinite(dp) || Math.abs(dp) <= stepTolKpa) dir.push(0);
+    else dir.push(dp > 0 ? 1 : -1);
+  }
 
   // Reduce runs of direction ignoring zeros
   const runs: Array<{ d: -1 | 1; from: number; to: number }> = [];
@@ -81,6 +98,16 @@ export function detectLoopsByPressure(pts: PVPoint[]): LoopWindow[] {
       nextPeakIndex >= pts.length
     )
       continue;
+
+    if (valleyIndex - peakIndex < 2 || nextPeakIndex - valleyIndex < 2) continue;
+
+    const pk = pts[peakIndex]!.p_kpa;
+    const vl = pts[valleyIndex]!.p_kpa;
+    const nx = pts[nextPeakIndex]!.p_kpa;
+    if (!Number.isFinite(pk) || !Number.isFinite(vl) || !Number.isFinite(nx)) continue;
+    const unloadDp = pk - vl;
+    const reloadDp = nx - vl;
+    if (unloadDp < excursionMinKpa || reloadDp < excursionMinKpa) continue;
 
     loops.push({ peakIndex, valleyIndex, nextPeakIndex });
   }

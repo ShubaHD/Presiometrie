@@ -39,10 +39,6 @@ export const calculatePresiometryProgramB: CalculationFn = (_m: MeasurementMap, 
 
   const loops = detectLoopsByPressure(pts);
   out.intermediate.push(line(10, "pmt_loops_detected", "Bucle detectate (auto)", loops.length, "—", 0, false));
-  if (loops.length === 0) {
-    out.warnings.push("Nu am detectat bucle (încărcare–descărcare–reîncărcare).");
-    return out;
-  }
 
   const segments = buildProgramBRegressionSegments(pts, manual, loops);
 
@@ -66,6 +62,11 @@ export const calculatePresiometryProgramB: CalculationFn = (_m: MeasurementMap, 
     );
   } else if (manual?.mode === "manual" && manual.load1) {
     out.warnings.push("G_L1 (manual): interval invalid sau prea puține puncte pentru regresie.");
+  }
+
+  if (loops.length === 0) {
+    out.warnings.push("Nu am detectat bucle (încărcare–descărcare–reîncărcare); G_UR pe bucle nu se calculează.");
+    return out;
   }
 
   let order = 100;
