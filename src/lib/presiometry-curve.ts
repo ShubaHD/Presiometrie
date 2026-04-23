@@ -80,14 +80,76 @@ export function parsePresiometryDelimited(text: string): PresiometryCurvePayload
     .filter((l) => l.length > 0);
   if (lines.length < 2) return null;
 
-  const detectDelimiter = (line: string): string => {
-    const counts: Array<{ d: string; c: number }> = [
-      { d: "\t", c: (line.match(/\t/g) ?? []).length },
-      { d: ";", c: (line.match(/;/g) ?? []).length },
-      { d: ",", c: (line.match(/,/g) ?? []).length },
+  const countDelimiterOutsideQuotes = (line: string, delimiter: string): number => {
+    if (delimiter.length !== 1) return 0;
+    const d = delimiter.charCodeAt(0);
+    let inQuotes = false;
+    let escaped = false;
+    let count = 0;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line.charCodeAt(i);
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (ch === 92 /* \\ */) {
+        escaped = true;
+        continue;
+      }
+      if (ch === 34 /* " */) {
+        inQuotes = !inQuotes;
+        continue;
+      }
+      if (!inQuotes && ch === d) count++;
+    }
+    return count;
+  };
+
+  const splitDelimitedLine = (line: string, delimiter: string): string[] => {
+    if (delimiter.length !== 1) return line.split(delimiter).map((c) => c.trim());
+    const d = delimiter.charCodeAt(0);
+    const out: string[] = [];
+    let cur = "";
+    let inQuotes = false;
+    let escaped = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line.charCodeAt(i);
+      if (escaped) {
+        cur += String.fromCharCode(ch);
+        escaped = false;
+        continue;
+      }
+      if (ch === 92 /* \\ */) {
+        escaped = true;
+        continue;
+      }
+      if (ch === 34 /* " */) {
+        inQuotes = !inQuotes;
+        continue;
+      }
+      if (!inQuotes && ch === d) {
+        out.push(cur.trim());
+        cur = "";
+        continue;
+      }
+      cur += String.fromCharCode(ch);
+    }
+    out.push(cur.trim());
+    return out;
+  };
+
+  const pickDelimiter = (line: string): string => {
+    const candidates: Array<{ d: string; c: number; prio: number }> = [
+      { d: "\t", c: countDelimiterOutsideQuotes(line, "\t"), prio: 4 },
+      { d: ";", c: countDelimiterOutsideQuotes(line, ";"), prio: 3 },
+      { d: ",", c: countDelimiterOutsideQuotes(line, ","), prio: 2 },
     ];
-    counts.sort((a, b) => b.c - a.c);
-    return counts[0]!.c > 0 ? counts[0]!.d : ";";
+    candidates.sort((a, b) => {
+      if (b.c !== a.c) return b.c - a.c;
+      if (b.prio !== a.prio) return b.prio - a.prio;
+      return a.d.localeCompare(b.d);
+    });
+    return candidates[0]!.c > 0 ? candidates[0]!.d : ";";
   };
 
   const norm = (s: string) =>
@@ -193,8 +255,8 @@ export function parsePresiometryDelimited(text: string): PresiometryCurvePayload
   for (let i = 0; i < Math.min(lines.length, 200); i++) {
     const line = lines[i]!;
     if (line.startsWith("#") || line.startsWith("//")) continue;
-    const d = detectDelimiter(line);
-    const cells = line.split(d).map((c) => c.trim());
+    const d = pickDelimiter(line);
+    const cells = splitDelimitedLine(line, d);
     if (cells.length < 2) continue;
     if (looksLikeHeader(cells)) {
       headerIndex = i;
@@ -307,7 +369,7 @@ export function parsePresiometryDelimited(text: string): PresiometryCurvePayload
   for (let i = start; i < lines.length; i++) {
     const line = lines[i]!;
     if (line.startsWith("#") || line.startsWith("//")) continue;
-    const parts = line.split(delim).map((s) => s.trim());
+    const parts = splitDelimitedLine(line, delim);
     if (parts.length < 2) continue;
     const pRaw = parts[pIdx];
     const vRaw = parts[vIdx];
