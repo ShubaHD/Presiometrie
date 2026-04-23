@@ -56,6 +56,23 @@ function isPresiometryType(tt: unknown): tt is TestType {
   );
 }
 
+/** Domeniu numeric cu marjă — evită axa X de la 0 când toate valorile sunt într-un pliu îngust (ex. R ≈ 36 mm). */
+function axisDomainPadded(values: number[], padRatio = 0.06): [number, number] | undefined {
+  if (!values.length) return undefined;
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (const v of values) {
+    if (!Number.isFinite(v)) continue;
+    if (v < lo) lo = v;
+    if (v > hi) hi = v;
+  }
+  if (!Number.isFinite(lo) || !Number.isFinite(hi)) return undefined;
+  const span = hi - lo;
+  const pad =
+    span > 0 ? span * padRatio : Math.max(Math.abs(lo), Math.abs(hi), 1e-6) * Math.max(padRatio, 0.02);
+  return [lo - pad, hi + pad];
+}
+
 export function TestWorkspace({
   projectId,
   boreholeId,
@@ -135,7 +152,14 @@ export function TestWorkspace({
         return { p_kpa, x, r_mm: Number(r_mm), v_cm3: Number(v_cm3) };
       })
       .filter((p) => Number.isFinite(p.p_kpa) && Number.isFinite(p.x));
-    if (pts.length === 0) return { pr: [], pdr: [], loops: [], w3070: null as null | { p30: number; p70: number } };
+    if (pts.length === 0)
+      return {
+        pr: [],
+        pdr: [],
+        loops: [],
+        w3070: null as null | { p30: number; p70: number },
+        prXDomain: undefined as [number, number] | undefined,
+      };
     const r0 = xKind === "radius_mm" ? seatingRmm : pts[0]!.v_cm3;
     const pr = pts.map((p) => ({ x: p.x, p_kpa: p.p_kpa }));
     const pdr =
@@ -148,7 +172,8 @@ export function TestWorkspace({
     const pMin = Math.min(...pts.map((p) => p.p_kpa));
     const pMax = Math.max(...pts.map((p) => p.p_kpa));
     const w3070 = pWindow3070(pMin, pMax);
-    return { pr, pdr, loops, w3070 };
+    const prXDomain = axisDomainPadded(pr.map((p) => p.x));
+    return { pr, pdr, loops, w3070, prXDomain };
   }, [curve, xKind, seatingRmm]);
 
   const manualSettings = useMemo(() => {
@@ -581,6 +606,7 @@ export function TestWorkspace({
                         <XAxis
                           type="number"
                           dataKey="x"
+                          domain={chartSeries.prXDomain ?? ["auto", "auto"]}
                           tick={{ fontSize: 11 }}
                           label={{ value: xLabel, position: "bottom", offset: 0, style: { fontSize: 11 } }}
                         />
