@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+  <meta charset="utf-8" />
+  <title>{{reportPageTitle}} · {{sample.code}}</title>
+  <style>{{{combinedCss}}}</style>
+</head>
+<body>
+  {{#if show.header}}{{> header}}{{/if}}
+  {{#if show.sampleInfo}}{{> sample_info}}{{/if}}
+
+  <section class="section">
+    <h2 class="iso13755-title">{{absorptionPorosityRock.meta.standard_number}} — Absorbție apă / Porozitate (rocă)</h2>
+    <p class="muted">{{absorptionPorosityRock.meta.standard_title}}</p>
+
+    <div class="iso13755-grid">
+      <div class="iso13755-kv">
+        <div class="k">Client</div><div>{{absorptionPorosityRock.meta.client_name_address}}</div>
+        <div class="k">Denumire petrografică</div><div>{{absorptionPorosityRock.meta.stone_petrographic_name}}</div>
+        <div class="k">Denumire comercială</div><div>{{absorptionPorosityRock.meta.stone_commercial_name}}</div>
+        <div class="k">Țara / regiunea extracției</div><div>{{absorptionPorosityRock.meta.extraction_country_region}}</div>
+        <div class="k">Furnizor</div><div>{{absorptionPorosityRock.meta.supplier_name}}</div>
+      </div>
+      <div class="iso13755-kv">
+        <div class="k">Locație încercare</div><div>{{absorptionPorosityRock.meta.test_location}}</div>
+        <div class="k">Anizotropie (dacă e relevant)</div><div>{{absorptionPorosityRock.meta.anisotropy_direction}}</div>
+        <div class="k">Finisaj suprafață</div><div>{{absorptionPorosityRock.meta.surface_finish}}</div>
+        <div class="k">Prelevare efectuată de</div><div>{{absorptionPorosityRock.meta.sampling_by}}</div>
+        <div class="k">Livrare / Preparare</div><div>{{absorptionPorosityRock.meta.delivery_date}} / {{absorptionPorosityRock.meta.preparation_date}}</div>
+      </div>
+    </div>
+  </section>
+
+  {{#if show.specimenPhotos}}{{> specimen_photos}}{{/if}}
+
+  <section class="section">
+    <h2>Rezultate — epruvete (3) + medie</h2>
+    <table class="data">
+      <thead>
+        <tr>
+          <th>Epruvetă</th>
+          <th>m_d (g)</th>
+          <th>m_s (SSD) (g)</th>
+          <th>m_sub (g)</th>
+          <th>Absorbție (%)</th>
+          <th>Porozitate (%)</th>
+          <th>ρ (g/cm³)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{#each absorptionPorosityRock.specimens}}
+          <tr>
+            <td>{{label}}</td>
+            <td>{{mass_dry_g}}</td>
+            <td>{{mass_sat_ssd_g}}</td>
+            <td>{{mass_submerged_g}}</td>
+            <td><strong>{{absorption_percent}}</strong></td>
+            <td><strong>{{apparent_porosity_percent}}</strong></td>
+            <td><strong>{{bulk_density_g_cm3}}</strong></td>
+          </tr>
+        {{/each}}
+        <tr>
+          <td><strong>Medie</strong></td>
+          <td colspan="3">—</td>
+          <td><strong>{{absorptionPorosityRock.mean.absorption_percent}}</strong></td>
+          <td><strong>{{absorptionPorosityRock.mean.apparent_porosity_percent}}</strong></td>
+          <td><strong>{{absorptionPorosityRock.mean.bulk_density_g_cm3}}</strong></td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="iso13755-note">Absorbția este exprimată la cel mai apropiat 0,1% (conform ISO).</p>
+  </section>
+
+  <section class="section">
+    <h2>Cerințe raport (ISO 13755)</h2>
+    <table class="data data-compact">
+      <thead>
+        <tr><th>ID</th><th>Cerință</th><th>Valoare</th></tr>
+      </thead>
+      <tbody>
+        {{#each iso13755MandatoryRows}}
+          <tr><td>{{id}}</td><td>{{label}}</td><td>{{value}}</td></tr>
+        {{/each}}
+      </tbody>
+    </table>
+  </section>
+
+  <section class="section">
+    <h2>Abateri / Observații</h2>
+    <div class="iso13755-kv">
+      <div class="k">Abateri de la standard</div><div>{{absorptionPorosityRock.meta.deviations}}</div>
+      <div class="k">Observații</div><div>{{absorptionPorosityRock.meta.remarks}}</div>
+    </div>
+  </section>
+
+  {{#if show.observations}}{{> observations}}{{/if}}
+  {{#if show.signatures}}{{> signatures}}{{/if}}
+  {{#if show.footer}}{{> footer}}{{/if}}
+</body>
+</html>
+

@@ -1,0 +1,15 @@
+{{#if show.pointLoadStructured}}
+<div class="plt-structured-wrap">
+  {{#each pointLoadSections}}
+  <section class="section plt-pl-section">
+    <h2>{{num}}. {{title}}</h2>
+    {{#if note}}<p class="muted plt-pl-note">{{note}}</p>{{/if}}
+    <div class="meta-grid">
+      {{#each rows}}
+      <div class="meta-row"><span class="k">{{label}}</span><span>{{value}}</span></div>
+      {{/each}}
+    </div>
+  </section>
+  {{/each}}
+</div>
+{{/if}}

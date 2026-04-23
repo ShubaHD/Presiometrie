@@ -1,0 +1,16 @@
+{
+  "templateCode": "iso22476-5-presiometry",
+  "version": "0.1.0",
+  "sections": [
+    "header",
+    "sampleInfo",
+    "testConditions",
+    "specimenPhotos",
+    "measurements",
+    "results",
+    "observations",
+    "signatures",
+    "footer"
+  ]
+}
+

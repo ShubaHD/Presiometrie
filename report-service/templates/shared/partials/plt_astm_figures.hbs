@@ -1,0 +1,14 @@
+{{#if show.pltAstmFigures}}
+<section class="section plt-astm-figures">
+  <h2>Referință vizuală ASTM D5731-16 (point load)</h2>
+  <p class="muted">Fig. 3 — D, W, L și probă echivalentă.</p>
+  <div class="plt-figure-grid">
+    {{#each pltAstmFigures}}
+    <figure class="plt-figure">
+      <img src="{{{dataUrl}}}" alt="{{caption}}" />
+      <figcaption>{{caption}}</figcaption>
+    </figure>
+    {{/each}}
+  </div>
+</section>
+{{/if}}

@@ -1,0 +1,26 @@
+{{#if show.ucsChartsSection}}
+<section class="ucs-charts-section">
+  <h2>Grafice</h2>
+  {{#if show.chartStressTime}}
+    <figure class="chart-wrap">{{{charts.stressTimeSvg}}}</figure>
+  {{/if}}
+  {{#if show.chartYoungGauges}}
+    <figure class="chart-wrap">{{{charts.youngGaugesSvg}}}</figure>
+  {{/if}}
+  {{#if show.chartTimeLoad}}
+    <figure class="chart-wrap">{{{charts.timeLoadSvg}}}</figure>
+  {{/if}}
+  {{#if show.chartLoadStrain}}
+    <figure class="chart-wrap">{{{charts.loadStrainSvg}}}</figure>
+  {{/if}}
+  {{#if show.chartSoilStressStrain}}
+    <figure class="chart-wrap">{{{charts.soilStressStrainSvg}}}</figure>
+  {{/if}}
+  {{#if show.chartSoilEpsilonDispTime}}
+    <figure class="chart-wrap">{{{charts.soilEpsilonDispTimeSvg}}}</figure>
+  {{/if}}
+  {{#if show.chartSoilMohr}}
+    <figure class="chart-wrap">{{{charts.soilMohrQuCuSvg}}}</figure>
+  {{/if}}
+</section>
+{{/if}}

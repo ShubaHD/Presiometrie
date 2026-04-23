@@ -1,0 +1,22 @@
+<section class="specimen-photos-section">
+  <h2>Documentare probă</h2>
+  <p class="muted">Raport §8.1 k: descriere / schiță / fotografie a probei care indică tipul de rupere.</p>
+  <div class="specimen-photo-grid">
+    {{#if photos.beforeSrc}}
+    <figure class="specimen-figure">
+      <figcaption>Înainte de încercare</figcaption>
+      <div class="specimen-img-wrap">
+        <img src="{{{photos.beforeSrc}}}" alt="Probă înainte de încercare" />
+      </div>
+    </figure>
+    {{/if}}
+    {{#if photos.afterSrc}}
+    <figure class="specimen-figure">
+      <figcaption>După încercare</figcaption>
+      <div class="specimen-img-wrap">
+        <img src="{{{photos.afterSrc}}}" alt="Probă după încercare" />
+      </div>
+    </figure>
+    {{/if}}
+  </div>
+</section>

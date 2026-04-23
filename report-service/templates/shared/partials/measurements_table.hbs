@@ -1,0 +1,15 @@
+<section class="section">
+  <h2>Măsurători</h2>
+  <table class="data">
+    <thead>
+      <tr><th>Indicator</th><th>Valoare</th><th>Unitate</th></tr>
+    </thead>
+    <tbody>
+      {{#each measurements}}
+        <tr><td>{{label}}</td><td>{{value}}</td><td>{{unit}}</td></tr>
+      {{else}}
+        <tr><td colspan="3">—</td></tr>
+      {{/each}}
+    </tbody>
+  </table>
+</section>

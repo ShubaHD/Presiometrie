@@ -1,0 +1,16 @@
+/* Tema locală SR EN ISO 22476-5 — modificați fără a schimba aplicația Next */
+h1 {
+  color: #1f4d2f;
+  border-bottom: 2px solid #2f7a4a;
+  padding-bottom: 0.25em;
+}
+
+h2 {
+  color: #1f4d2f;
+  border-bottom-color: #2f7a4a;
+}
+
+table.data th {
+  background: #e9f7ef;
+}
+

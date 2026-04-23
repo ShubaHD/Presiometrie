@@ -1,0 +1,55 @@
+<section class="section">
+  <h2>Date execuție și condiții de încercare</h2>
+  <div class="meta-grid">
+    <div class="meta-row"><span class="k">Data testului</span><span>{{testConditions.testDateDisplay}}</span></div>
+    <div class="meta-row"><span class="k">Operator</span><span>{{testConditions.operatorDisplay}}</span></div>
+    <div class="meta-row"><span class="k">Echipament</span><span>{{testConditions.deviceDisplay}}</span></div>
+    <div class="meta-row"><span class="k">Umiditate probă</span><span>{{testConditions.sampleMoistureDisplay}}</span></div>
+    <div class="meta-row"><span class="k">Greutate volumică γ uscată (raport)</span><span><strong>{{testConditions.unitWeightReportedLine}}</strong></span></div>
+    {{#if testConditions.unitWeightSourceNote}}
+    <p class="muted note-gamma">{{testConditions.unitWeightSourceNote}}</p>
+    {{/if}}
+    <div class="meta-row">
+      <span class="k">{{#if show.soilOnlyTestConditions}}Viteza de forfecare (mm/min){{else}}Rată de încărcare{{/if}}</span>
+      <span>{{testConditions.loadingRate}}</span>
+    </div>
+    {{#unless show.soilOnlyTestConditions}}
+    <div class="meta-row"><span class="k">Direcție față de structura rocii</span><span>{{testConditions.directionVsStructure}}</span></div>
+    {{/unless}}
+    <div class="meta-row"><span class="k">Descriere mod de rupere</span><span>{{testConditions.failureMode}}</span></div>
+    {{#unless show.soilOnlyTestConditions}}
+    <div class="meta-row"><span class="k">Declarație conformitate dimensională</span><span>{{testConditions.dimensionalCompliance}}</span></div>
+    {{/unless}}
+    {{#if testConditions.soilVisualDescription}}
+    <div class="meta-row"><span class="k">Descriere vizuală probă (ISO 17892-7)</span><span>{{testConditions.soilVisualDescription}}</span></div>
+    {{/if}}
+    {{#if testConditions.soilSpecimenTypeProcedure}}
+    <div class="meta-row"><span class="k">Tip probă / procedură</span><span>{{testConditions.soilSpecimenTypeProcedure}}</span></div>
+    {{/if}}
+    {{#if testConditions.soilDeviations}}
+    <div class="meta-row"><span class="k">Abateri de la procedură</span><span>{{testConditions.soilDeviations}}</span></div>
+    {{/if}}
+    {{#if testConditions.soilFailureDocumentation}}
+    <div class="meta-row"><span class="k">Documentare mod eșec</span><span>{{testConditions.soilFailureDocumentation}}</span></div>
+    {{/if}}
+    {{#if testConditions.youngModulusMethod}}
+    <div class="meta-row"><span class="k">Metodă calcul E (modul Young)</span><span>{{testConditions.youngModulusMethod}}</span></div>
+    {{/if}}
+    <div class="meta-row"><span class="k">Timp până la rupere</span><span>{{testConditions.timeToFailure}}</span></div>
+  </div>
+
+  {{#if testConditions.unitWeightPerSpecimen.length}}
+  <h3 class="subh">Detaliu γ pe probe (tab Greutate volumică)</h3>
+  <p class="muted">Medie calcule: {{testConditions.unitWeightMeanFromTabLine}}</p>
+  <table class="data data-compact">
+    <thead>
+      <tr><th>Probă</th><th>γ (kN/m³)</th></tr>
+    </thead>
+    <tbody>
+      {{#each testConditions.unitWeightPerSpecimen}}
+      <tr><td>{{label}}</td><td><strong>{{value}}</strong></td></tr>
+      {{/each}}
+    </tbody>
+  </table>
+  {{/if}}
+</section>

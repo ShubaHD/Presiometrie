@@ -1,0 +1,15 @@
+{
+  "templateCode": "ucs-default",
+  "version": "1.5.1",
+  "sections": [
+    "header",
+    "sampleInfo",
+    "testConditions",
+    "specimenPhotos",
+    "measurements",
+    "results",
+    "observations",
+    "signatures",
+    "footer"
+  ]
+}

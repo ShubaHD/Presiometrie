@@ -1,0 +1,6 @@
+{
+  "templateCode": "ISO13755",
+  "version": "1.0.0",
+  "sections": ["header", "sampleInfo", "observations", "signatures", "footer", "specimenPhotos"]
+}
+

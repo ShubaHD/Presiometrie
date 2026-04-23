@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+  <meta charset="utf-8" />
+  <title>{{#if reportPageTitle}}{{reportPageTitle}}{{else}}Determinarea rezistenței la compresiune uniaxială{{/if}} · {{sample.code}}</title>
+  <style>{{{combinedCss}}}</style>
+</head>
+<body>
+  {{#if show.header}}{{> header}}{{/if}}
+  {{#if show.sampleInfo}}{{> sample_info}}{{/if}}
+  {{> iso_17892_7_mandatory}}
+  {{#if show.testConditions}}{{> test_conditions}}{{/if}}
+  {{#if show.pointLoadStructured}}{{> point_load_structured}}{{/if}}
+  {{> plt_astm_figures}}
+  {{#if show.specimenPhotos}}{{> specimen_photos}}{{/if}}
+  {{#if show.measurements}}{{> measurements_table}}{{/if}}
+  {{#if show.results}}{{> results_table}}{{/if}}
+  {{> ucs_charts}}
+  {{#if show.observations}}{{> observations}}{{/if}}
+  {{#if show.signatures}}{{> signatures}}{{/if}}
+  {{#if show.footer}}{{> footer}}{{/if}}
+</body>
+</html>

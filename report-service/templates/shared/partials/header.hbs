@@ -1,0 +1,34 @@
+<header class="section report-page-header">
+  <div class="report-header-top">
+    <div class="lab-brand">
+      {{#if lab.logoSrc}}
+      <div class="lab-logo-wrap">
+        <img class="lab-logo-img" src="{{{lab.logoSrc}}}" alt="" />
+      </div>
+      {{/if}}
+      <div class="lab-contact">
+        {{#if lab.companyName}}
+        <div class="lab-company-name">{{lab.companyName}}</div>
+        {{/if}}
+        {{#if lab.address}}
+        <div>{{lab.address}}</div>
+        {{/if}}
+        {{#if lab.phone}}
+        <div>Tel.: {{lab.phone}}</div>
+        {{/if}}
+        {{#if lab.website}}
+        <div>{{lab.website}}</div>
+        {{/if}}
+        <div class="lab-authorization">Authorized laboratory - Aut. No. 3976/2023</div>
+      </div>
+    </div>
+    <div class="report-header-title">
+      <h1 class="bulletin-main-title">{{#if reportMainTitle}}{{reportMainTitle}}{{else}}Determinarea rezistenței la compresiune uniaxială{{/if}}</h1>
+      <p class="bulletin-norm-ref">{{#if reportNormRef}}{{reportNormRef}}{{else}}Conform cu SR EN 1926:2007{{/if}}</p>
+      {{#if conformanceStatement}}
+      <p class="muted">{{conformanceStatement}}</p>
+      {{/if}}
+      <p class="muted">Proiect <strong>{{project.code}}</strong> — {{project.name}}</p>
+    </div>
+  </div>
+</header>

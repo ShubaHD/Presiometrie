@@ -1,0 +1,7 @@
+# Opțional: Railway detectează Dockerfile automat.
+# Setează Root Directory = report-service (sau monorepo: service path către acest folder).
+
+[deploy]
+healthcheckPath = "/health"
+healthcheckTimeout = 100
+restartPolicyType = "on_failure"

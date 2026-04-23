@@ -1,0 +1,18 @@
+<section class="section">
+  <h2>Rezultate calculate</h2>
+  <table class="data">
+    <thead>
+      <tr><th>Rezultat</th><th>Valoare</th><th>Unitate</th></tr>
+    </thead>
+    <tbody>
+      {{#each results}}
+        <tr><td>{{label}}</td><td><strong>{{value}}</strong></td><td>{{unit}}</td></tr>
+      {{else}}
+        <tr><td colspan="3">—</td></tr>
+      {{/each}}
+    </tbody>
+  </table>
+  {{#if test.formula_version}}
+    <p class="muted">Versiune formule motor calcule: {{test.formula_version}}</p>
+  {{/if}}
+</section>
