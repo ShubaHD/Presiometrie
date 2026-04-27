@@ -577,6 +577,14 @@ export function TestWorkspace({
           pushTan(pair.reload);
         }
       });
+
+      // Program A: if the series ends on an unloading branch (no reload), also show the terminal GU (e.g. GU3).
+      const trailing =
+        "trailingUnload" in regressionSegments ? (regressionSegments.trailingUnload as PresiometryRegressionSegment | null) : null;
+      if (trailing) {
+        pushSeg(trailing, trailing.symbol);
+        pushTan(trailing);
+      }
     }
 
     return { areasPr, areasPdr, tangentsPr, tangentsPdr };
