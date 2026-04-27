@@ -38,6 +38,13 @@ export type LoopWindow = {
   nextPeakIndex: number;
 };
 
+export type TrailingUnloadWindow = {
+  /** Index of local peak (start of terminal unloading). */
+  peakIndex: number;
+  /** Index of local minimum reached by terminal unloading (often last point). */
+  valleyIndex: number;
+};
+
 /**
  * Bucle = secvență încărcare → descărcare → reîncărcare în **presiune**.
  * Fără filtre, zgomotul pas-cu-pas (Δp mic) creează multe triplete +/−/+ false.
@@ -121,6 +128,73 @@ export function detectLoopsByPressure(pts: PVPoint[]): LoopWindow[] {
     else out.push(w);
   }
   return out;
+}
+
+/**
+ * Detectează o descărcare finală (încărcare → descărcare) când seria se termină pe ramura de descărcare,
+ * deci nu există reîncărcare pentru a forma o buclă (+/−/+).
+ *
+ * Întoarce `null` dacă:
+ * - seria nu se termină în scădere (după toleranță), sau
+ * - amplitudinea descărcării nu este suficientă.
+ */
+export function detectTrailingUnloadByPressure(
+  pts: PVPoint[],
+  afterIndexInclusive: number,
+): TrailingUnloadWindow | null {
+  if (pts.length < 5) return null;
+  const startI = Math.max(0, Math.min(afterIndexInclusive, pts.length - 2));
+
+  let pMin = Infinity;
+  let pMax = -Infinity;
+  for (const p of pts) {
+    if (!Number.isFinite(p.p_kpa)) continue;
+    pMin = Math.min(pMin, p.p_kpa);
+    pMax = Math.max(pMax, p.p_kpa);
+  }
+  if (!Number.isFinite(pMin) || !Number.isFinite(pMax) || !(pMax > pMin)) return null;
+  const span = pMax - pMin;
+  const stepTolKpa = Math.max(20, span * 0.0012);
+  const excursionMinKpa = Math.max(80, span * 0.007);
+
+  const dir: Array<-1 | 0 | 1> = [];
+  for (let i = 1; i < pts.length; i++) {
+    const dp = pts[i]!.p_kpa - pts[i - 1]!.p_kpa;
+    if (!Number.isFinite(dp) || Math.abs(dp) <= stepTolKpa) dir.push(0);
+    else dir.push(dp > 0 ? 1 : -1);
+  }
+
+  // Build runs ignoring zeros
+  const runs: Array<{ d: -1 | 1; from: number; to: number }> = [];
+  let i = 0;
+  while (i < dir.length) {
+    while (i < dir.length && dir[i] === 0) i++;
+    if (i >= dir.length) break;
+    const d = dir[i] as -1 | 1;
+    const from = i;
+    let to = i;
+    while (to + 1 < dir.length && (dir[to + 1] === d || dir[to + 1] === 0)) to++;
+    runs.push({ d, from, to });
+    i = to + 1;
+  }
+  if (runs.length < 2) return null;
+
+  const last = runs[runs.length - 1]!;
+  const prev = runs[runs.length - 2]!;
+  if (!(prev.d === 1 && last.d === -1)) return null; // must end with unloading
+
+  const peakIndex = prev.to + 1;
+  const valleyIndex = Math.min(pts.length - 1, last.to + 1);
+  if (peakIndex <= startI) return null;
+  if (valleyIndex <= peakIndex) return null;
+  if (valleyIndex - peakIndex < 2) return null;
+
+  const pk = pts[peakIndex]!.p_kpa;
+  const vl = pts[valleyIndex]!.p_kpa;
+  if (!Number.isFinite(pk) || !Number.isFinite(vl)) return null;
+  if (pk - vl < excursionMinKpa) return null;
+
+  return { peakIndex, valleyIndex };
 }
 
 export type Regression = { slope: number | null; intercept: number | null; r2: number | null; n: number };

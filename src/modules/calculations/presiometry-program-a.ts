@@ -147,5 +147,16 @@ export const calculatePresiometryProgramA: CalculationFn = (m: MeasurementMap, c
     order += 50;
   });
 
+  // If the test ends on an unloading branch (no reload), expose it as GU{loops+1}.
+  if (segments.trailingUnload) {
+    const regUn = segments.trailingUnload.regression;
+    const kUn = slopeKpaPerUnitToMpaPerUnit(regUn.slope != null ? Math.abs(regUn.slope) : null);
+    const i = Math.min(10, loops.length + 1);
+    out.final.push(
+      line(order, `pmt_a_loop${i}_unload_${axis.keySuffix}`, labelGuSlope(i, axis.label, false), kUn, `MPa/${axis.unit}`, 3),
+      line(order + 10, `pmt_a_loop${i}_unload_r2`, labelGuR2(i), regUn.r2, "—", 3, false),
+    );
+  }
+
   return out;
 };

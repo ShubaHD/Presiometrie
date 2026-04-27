@@ -1,6 +1,7 @@
 import type { PresiometryManualSettings } from "./presiometry-manual";
 import type { LoopWindow, PVPoint, Regression } from "./presiometry-utils";
 import {
+  detectTrailingUnloadByPressure,
   linearRegressionYonX,
   pWindow3070,
   pickPointsInPressureWindowWithIndices,
@@ -208,10 +209,30 @@ export function buildProgramARegressionSegments(
 ): {
   load1: PresiometryRegressionSegment | null;
   loops: Array<{ unload: PresiometryRegressionSegment | null; reload: PresiometryRegressionSegment | null }>;
+  trailingUnload: PresiometryRegressionSegment | null;
 } {
   const load1 = buildFirstLoadingSegmentProgramA(pts, manual, loops);
   const loopSegs = loops.slice(0, 10).map((lp, idx) => buildLoopUnloadReloadSegments(pts, manual, lp, idx));
-  return { load1, loops: loopSegs };
+  let trailingUnload: PresiometryRegressionSegment | null = null;
+
+  // Only in auto mode: if the series ends with an unloading branch (no reload), surface it as GU{loops+1}.
+  if (manual?.mode !== "manual") {
+    const lastLoop = loops.length ? loops[Math.min(loops.length - 1, 9)] : null;
+    const after = lastLoop ? Math.min(pts.length - 2, lastLoop.nextPeakIndex) : 0;
+    const w = detectTrailingUnloadByPressure(pts, after);
+    if (w) {
+      const peak = pts[w.peakIndex]!;
+      const valley = pts[w.valleyIndex]!;
+      const pw = pWindow3070(valley.p_kpa, peak.p_kpa);
+      if (pw) {
+        const picked = pickPointsInPressureWindowWithIndices(pts, w.peakIndex, w.valleyIndex, pw.p30, pw.p70);
+        const sym = `GU${Math.min(10, loops.length + 1)}`;
+        trailingUnload = segmentFromArrays(sym, "auto3070", picked.xsV, picked.ysP, picked.indexFrom, picked.indexTo);
+      }
+    }
+  }
+
+  return { load1, loops: loopSegs, trailingUnload };
 }
 
 export function buildProgramBRegressionSegments(
