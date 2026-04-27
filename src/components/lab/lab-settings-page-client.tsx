@@ -26,7 +26,7 @@ export function LabSettingsPageClient() {
   const load = useCallback(async () => {
     setMsg(null);
     try {
-      const res = await fetch("/api/lab/profile");
+      const res = await fetch("/api/lab/profile", { cache: "no-store" });
       const j = (await res.json()) as {
         companyName?: string;
         address?: string;
@@ -115,6 +115,7 @@ export function LabSettingsPageClient() {
       if (!res.ok) throw new Error(j.error ?? "Upload eșuat");
       setLogoPath(j.logoPath ?? null);
       setMsg("Logo actualizat.");
+      await load();
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "Eroare");
     } finally {

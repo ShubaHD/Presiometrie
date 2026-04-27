@@ -6,6 +6,11 @@ import { NextResponse } from "next/server";
 const MAX_LOGO_BYTES = 4 * 1024 * 1024;
 const BUCKET = "lab-files";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+const NO_STORE = { "Cache-Control": "no-store, max-age=0" } as const;
+
 export async function POST(req: Request) {
   try {
     const auth = await requireAuth();
@@ -57,9 +62,9 @@ export async function POST(req: Request) {
     return NextResponse.json({
       logoPath: (data as { logo_path: string }).logo_path,
       updatedAt: (data as { updated_at: string }).updated_at,
-    });
+    }, { headers: NO_STORE });
   } catch (e) {
-    return NextResponse.json({ error: toErrorMessage(e) }, { status: 500 });
+    return NextResponse.json({ error: toErrorMessage(e) }, { status: 500, headers: NO_STORE });
   }
 }
 
@@ -79,8 +84,8 @@ export async function DELETE() {
       .update({ logo_path: null, updated_at: new Date().toISOString() })
       .eq("id", 1);
     if (error) throw error;
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true }, { headers: NO_STORE });
   } catch (e) {
-    return NextResponse.json({ error: toErrorMessage(e) }, { status: 500 });
+    return NextResponse.json({ error: toErrorMessage(e) }, { status: 500, headers: NO_STORE });
   }
 }

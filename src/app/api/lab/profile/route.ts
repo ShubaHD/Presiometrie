@@ -3,6 +3,9 @@ import { toErrorMessage } from "@/lib/to-error-message";
 import type { LabProfile } from "@/types/lab";
 import { NextResponse } from "next/server";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 function rowToClient(row: LabProfile) {
   return {
     companyName: row.company_name ?? "",
@@ -13,6 +16,8 @@ function rowToClient(row: LabProfile) {
     updatedAt: row.updated_at,
   };
 }
+
+const NO_STORE = { "Cache-Control": "no-store, max-age=0" } as const;
 
 export async function GET() {
   try {
@@ -29,11 +34,11 @@ export async function GET() {
         website: "",
         logoPath: null as string | null,
         updatedAt: null as string | null,
-      });
+      }, { headers: NO_STORE });
     }
-    return NextResponse.json(rowToClient(data as LabProfile));
+    return NextResponse.json(rowToClient(data as LabProfile), { headers: NO_STORE });
   } catch (e) {
-    return NextResponse.json({ error: toErrorMessage(e) }, { status: 500 });
+    return NextResponse.json({ error: toErrorMessage(e) }, { status: 500, headers: NO_STORE });
   }
 }
 
@@ -71,8 +76,8 @@ export async function PATCH(req: Request) {
 
     const { data, error } = await supabase.from("lab_profile").upsert(merged, { onConflict: "id" }).select("*").single();
     if (error) throw error;
-    return NextResponse.json(rowToClient(data as LabProfile));
+    return NextResponse.json(rowToClient(data as LabProfile), { headers: NO_STORE });
   } catch (e) {
-    return NextResponse.json({ error: toErrorMessage(e) }, { status: 500 });
+    return NextResponse.json({ error: toErrorMessage(e) }, { status: 500, headers: NO_STORE });
   }
 }
