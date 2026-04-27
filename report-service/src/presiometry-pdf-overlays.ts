@@ -9,6 +9,8 @@ export type PVPoint = { p_kpa: number; x: number; x_kind: PresiometryXKind; t_s?
 
 export type LoopWindow = { peakIndex: number; valleyIndex: number; nextPeakIndex: number };
 
+export type TrailingUnloadWindow = { peakIndex: number; valleyIndex: number };
+
 export type Regression = { slope: number | null; intercept: number | null; r2: number | null; n: number };
 
 export type PresiometryManualSettings = {
@@ -163,6 +165,65 @@ export function pWindow3070(pMin: number, pMax: number): { p30: number; p70: num
   return { p30: lo + 0.3 * dp, p70: lo + 0.7 * dp };
 }
 
+/** Păstrați în sync cu web: `detectTrailingUnloadByPressure` (pentru GU terminal, ex. GU3). */
+export function detectTrailingUnloadByPressurePdf(
+  pts: PVPoint[],
+  afterIndexInclusive: number,
+): TrailingUnloadWindow | null {
+  if (pts.length < 5) return null;
+  const startI = Math.max(0, Math.min(afterIndexInclusive, pts.length - 2));
+
+  let pMin = Infinity;
+  let pMax = -Infinity;
+  for (const p of pts) {
+    if (!Number.isFinite(p.p_kpa)) continue;
+    pMin = Math.min(pMin, p.p_kpa);
+    pMax = Math.max(pMax, p.p_kpa);
+  }
+  if (!Number.isFinite(pMin) || !Number.isFinite(pMax) || !(pMax > pMin)) return null;
+  const span = pMax - pMin;
+  const stepTolKpa = Math.max(20, span * 0.0012);
+  const excursionMinKpa = Math.max(80, span * 0.007);
+
+  const dir: Array<-1 | 0 | 1> = [];
+  for (let i = 1; i < pts.length; i++) {
+    const dp = pts[i]!.p_kpa - pts[i - 1]!.p_kpa;
+    if (!Number.isFinite(dp) || Math.abs(dp) <= stepTolKpa) dir.push(0);
+    else dir.push(dp > 0 ? 1 : -1);
+  }
+
+  const runs: Array<{ d: -1 | 1; from: number; to: number }> = [];
+  let i = 0;
+  while (i < dir.length) {
+    while (i < dir.length && dir[i] === 0) i++;
+    if (i >= dir.length) break;
+    const d = dir[i] as -1 | 1;
+    const from = i;
+    let to = i;
+    while (to + 1 < dir.length && (dir[to + 1] === d || dir[to + 1] === 0)) to++;
+    runs.push({ d, from, to });
+    i = to + 1;
+  }
+  if (runs.length < 2) return null;
+
+  const last = runs[runs.length - 1]!;
+  const prev = runs[runs.length - 2]!;
+  if (!(prev.d === 1 && last.d === -1)) return null;
+
+  const peakIndex = prev.to + 1;
+  const valleyIndex = Math.min(pts.length - 1, last.to + 1);
+  if (peakIndex <= startI) return null;
+  if (valleyIndex <= peakIndex) return null;
+  if (valleyIndex - peakIndex < 2) return null;
+
+  const pk = pts[peakIndex]!.p_kpa;
+  const vl = pts[valleyIndex]!.p_kpa;
+  if (!Number.isFinite(pk) || !Number.isFinite(vl)) return null;
+  if (pk - vl < excursionMinKpa) return null;
+
+  return { peakIndex, valleyIndex };
+}
+
 export function tangentEndpointsRawX(
   slope: number,
   intercept: number,
@@ -209,6 +270,46 @@ function segmentFromArrays(
   const regression = linearRegressionYonX(xsV, ysP);
   if (regression.slope == null || regression.intercept == null) return null;
   return { symbol, source, regression, xsV, ysP, indexFrom, indexTo };
+}
+
+function bestAutoWindowSegmentPdf(
+  pts: PVPoint[],
+  fromInclusive: number,
+  toInclusive: number,
+  pMin: number,
+  pMax: number,
+  symbol: string,
+  candidates: Array<{ lo: number; hi: number }>,
+  minPoints = 4,
+): PresiometryRegressionSegment | null {
+  const loP = Math.min(pMin, pMax);
+  const hiP = Math.max(pMin, pMax);
+  const dp = hiP - loP;
+  if (!(dp > 0)) return null;
+
+  let best: PresiometryRegressionSegment | null = null;
+  let bestR2 = -Infinity;
+  let bestN = 0;
+
+  for (const c of candidates) {
+    const a = Math.max(0, Math.min(1, c.lo));
+    const b = Math.max(0, Math.min(1, c.hi));
+    if (!(b > a)) continue;
+    const pLow = loP + a * dp;
+    const pHigh = loP + b * dp;
+    const picked = pickPointsInPressureWindowWithIndices(pts, fromInclusive, toInclusive, pLow, pHigh);
+    if (picked.xsV.length < minPoints || picked.ysP.length < minPoints) continue;
+    const seg = segmentFromArrays(symbol, "auto3070", picked.xsV, picked.ysP, picked.indexFrom, picked.indexTo);
+    if (!seg) continue;
+    const r2 = seg.regression.r2 ?? -Infinity;
+    const n = seg.regression.n ?? picked.xsV.length;
+    if (r2 > bestR2 + 1e-12 || (Math.abs(r2 - bestR2) < 1e-12 && n > bestN)) {
+      best = seg;
+      bestR2 = r2;
+      bestN = n;
+    }
+  }
+  return best;
 }
 
 function buildFirstLoadingSegmentProgramA(
@@ -360,10 +461,41 @@ export function buildProgramARegressionSegmentsPdf(
 ): {
   load1: PresiometryRegressionSegment | null;
   loops: Array<{ unload: PresiometryRegressionSegment | null; reload: PresiometryRegressionSegment | null }>;
+  trailingUnload: PresiometryRegressionSegment | null;
 } {
   const load1 = buildFirstLoadingSegmentProgramA(pts, manual, loops);
   const loopSegs = loops.slice(0, 10).map((lp, idx) => buildLoopUnloadReloadSegments(pts, manual, lp, idx));
-  return { load1, loops: loopSegs };
+  let trailingUnload: PresiometryRegressionSegment | null = null;
+
+  if (manual?.mode !== "manual") {
+    const lastLoop = loops.length ? loops[Math.min(loops.length - 1, 9)] : null;
+    const after = lastLoop ? Math.min(pts.length - 2, lastLoop.nextPeakIndex) : 0;
+    const w = detectTrailingUnloadByPressurePdf(pts, after);
+    if (w) {
+      const peak = pts[w.peakIndex]!;
+      const valley = pts[w.valleyIndex]!;
+      const sym = `GU${Math.min(10, loops.length + 1)}`;
+      trailingUnload =
+        bestAutoWindowSegmentPdf(
+          pts,
+          w.peakIndex,
+          w.valleyIndex,
+          valley.p_kpa,
+          peak.p_kpa,
+          sym,
+          [
+            { lo: 0.2, hi: 0.8 },
+            { lo: 0.25, hi: 0.75 },
+            { lo: 0.3, hi: 0.7 },
+            { lo: 0.35, hi: 0.65 },
+            { lo: 0.4, hi: 0.6 },
+          ],
+          4,
+        ) ?? null;
+    }
+  }
+
+  return { load1, loops: loopSegs, trailingUnload };
 }
 
 export function buildProgramBRegressionSegmentsPdf(
@@ -608,6 +740,14 @@ export function buildPresiometryPdfOverlays(opts: {
       pushLine(pair.reload);
     }
   });
+
+  if (opts.testType === "presiometry_program_a") {
+    const trailing = "trailingUnload" in segs ? (segs.trailingUnload as PresiometryRegressionSegment | null) : null;
+    if (trailing) {
+      pushBand(trailing, "UT");
+      pushLine(trailing);
+    }
+  }
 
   return { bandsPr, bandsPdr, linesPr, linesPdr };
 }

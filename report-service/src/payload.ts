@@ -330,7 +330,7 @@ function svgLineChart(opts: {
   const segSvg = (opts.segmentLines ?? [])
     .map((s) => {
       const dash = s.dash ? ` stroke-dasharray="${escXml(s.dash)}"` : "";
-      return `<line x1="${sx(s.x1).toFixed(2)}" y1="${sy(s.y1).toFixed(2)}" x2="${sx(s.x2).toFixed(2)}" y2="${sy(s.y2).toFixed(2)}" stroke="${escXml(s.stroke)}" stroke-width="2"${dash} />`;
+      return `<line x1="${sx(s.x1).toFixed(2)}" y1="${sy(s.y1).toFixed(2)}" x2="${sx(s.x2).toFixed(2)}" y2="${sy(s.y2).toFixed(2)}" stroke="${escXml(s.stroke)}" stroke-width="2.6"${dash} />`;
     })
     .join("\n");
 
