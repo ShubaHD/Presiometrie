@@ -49,6 +49,46 @@ function segmentFromArrays(
   return { symbol, source, regression, xsV, ysP, indexFrom, indexTo };
 }
 
+function bestAutoWindowSegment(
+  pts: PVPoint[],
+  fromInclusive: number,
+  toInclusive: number,
+  pMin: number,
+  pMax: number,
+  symbol: string,
+  candidates: Array<{ lo: number; hi: number }>,
+  minPoints = 4,
+): PresiometryRegressionSegment | null {
+  const loP = Math.min(pMin, pMax);
+  const hiP = Math.max(pMin, pMax);
+  const dp = hiP - loP;
+  if (!(dp > 0)) return null;
+
+  let best: PresiometryRegressionSegment | null = null;
+  let bestR2 = -Infinity;
+  let bestN = 0;
+
+  for (const c of candidates) {
+    const a = Math.max(0, Math.min(1, c.lo));
+    const b = Math.max(0, Math.min(1, c.hi));
+    if (!(b > a)) continue;
+    const pLow = loP + a * dp;
+    const pHigh = loP + b * dp;
+    const picked = pickPointsInPressureWindowWithIndices(pts, fromInclusive, toInclusive, pLow, pHigh);
+    if (picked.xsV.length < minPoints || picked.ysP.length < minPoints) continue;
+    const seg = segmentFromArrays(symbol, "auto3070", picked.xsV, picked.ysP, picked.indexFrom, picked.indexTo);
+    if (!seg) continue;
+    const r2 = seg.regression.r2 ?? -Infinity;
+    const n = seg.regression.n ?? picked.xsV.length;
+    if (r2 > bestR2 + 1e-12 || (Math.abs(r2 - bestR2) < 1e-12 && n > bestN)) {
+      best = seg;
+      bestR2 = r2;
+      bestN = n;
+    }
+  }
+  return best;
+}
+
 export function buildFirstLoadingSegmentProgramA(
   pts: PVPoint[],
   manual: PresiometryManualSettings | null,
@@ -223,12 +263,26 @@ export function buildProgramARegressionSegments(
     if (w) {
       const peak = pts[w.peakIndex]!;
       const valley = pts[w.valleyIndex]!;
-      const pw = pWindow3070(valley.p_kpa, peak.p_kpa);
-      if (pw) {
-        const picked = pickPointsInPressureWindowWithIndices(pts, w.peakIndex, w.valleyIndex, pw.p30, pw.p70);
-        const sym = `GU${Math.min(10, loops.length + 1)}`;
-        trailingUnload = segmentFromArrays(sym, "auto3070", picked.xsV, picked.ysP, picked.indexFrom, picked.indexTo);
-      }
+      const sym = `GU${Math.min(10, loops.length + 1)}`;
+
+      // Try multiple pressure windows and pick the one with best R².
+      trailingUnload =
+        bestAutoWindowSegment(
+          pts,
+          w.peakIndex,
+          w.valleyIndex,
+          valley.p_kpa,
+          peak.p_kpa,
+          sym,
+          [
+            { lo: 0.2, hi: 0.8 },
+            { lo: 0.25, hi: 0.75 },
+            { lo: 0.3, hi: 0.7 },
+            { lo: 0.35, hi: 0.65 },
+            { lo: 0.4, hi: 0.6 },
+          ],
+          4,
+        ) ?? null;
     }
   }
 
