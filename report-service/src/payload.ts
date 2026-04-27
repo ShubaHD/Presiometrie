@@ -223,6 +223,7 @@ function svgLineChart(opts: {
   yLabel: string;
   points: Array<{ x: number; y: number }>;
   padAxesRatio?: number;
+  minXClamp?: number;
   bands?: Array<{ x1: number; x2: number; fill: string; opacity?: number }>;
   segmentLines?: Array<{
     x1: number;
@@ -262,6 +263,9 @@ function svgLineChart(opts: {
     maxX = Math.max(maxX, m.x);
     minY = Math.min(minY, m.y);
     maxY = Math.max(maxY, m.y);
+  }
+  if (opts.minXClamp != null && Number.isFinite(opts.minXClamp)) {
+    minX = Math.max(minX, opts.minXClamp);
   }
   let dx = maxX - minX;
   let dy = maxY - minY;
@@ -3171,6 +3175,7 @@ export async function buildPresiometryPayload(
           yLabel: tr.axis_p_mpa,
           points: curvePts.map((p) => ({ x: p.x, y: p.p_kpa / 1000 })),
           padAxesRatio: tt !== "presiometry_program_c" ? 0.06 : undefined,
+          minXClamp: xKind === "radius_mm" ? 37 : undefined,
           bands: overlaysPdf?.bandsPr,
           segmentLines: overlaysPdf?.linesPr,
         })
@@ -3187,6 +3192,7 @@ export async function buildPresiometryPayload(
             y: p.p_kpa / 1000,
           })),
           padAxesRatio: tt !== "presiometry_program_c" ? 0.06 : undefined,
+          minXClamp: xKind === "radius_mm" ? 37 - seatingR0 : undefined,
           bands: overlaysPdf?.bandsPdr,
           segmentLines: overlaysPdf?.linesPdr,
         })

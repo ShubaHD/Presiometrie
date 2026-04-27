@@ -84,7 +84,7 @@ function isPresiometryType(tt: unknown): tt is TestType {
 }
 
 /** Domeniu numeric cu marjă — evită axa X de la 0 când toate valorile sunt într-un pliu îngust (ex. R ≈ 36 mm). */
-function axisDomainPadded(values: number[], padRatio = 0.06): [number, number] | undefined {
+function axisDomainPadded(values: number[], padRatio = 0.06, clampMin?: number): [number, number] | undefined {
   if (!values.length) return undefined;
   let lo = Infinity;
   let hi = -Infinity;
@@ -94,6 +94,7 @@ function axisDomainPadded(values: number[], padRatio = 0.06): [number, number] |
     if (v > hi) hi = v;
   }
   if (!Number.isFinite(lo) || !Number.isFinite(hi)) return undefined;
+  if (clampMin != null && Number.isFinite(clampMin)) lo = Math.max(lo, clampMin);
   const span = hi - lo;
   const pad =
     span > 0 ? span * padRatio : Math.max(Math.abs(lo), Math.abs(hi), 1e-6) * Math.max(padRatio, 0.02);
@@ -401,8 +402,10 @@ export function TestWorkspace({
       w3070 && Number.isFinite(w3070.p30) && Number.isFinite(w3070.p70)
         ? { p30: w3070.p30 / KPA_PER_MPA, p70: w3070.p70 / KPA_PER_MPA }
         : null;
-    const prXDomain = axisDomainPadded(pr.map((p) => p.x));
-    const pdrXDomain = axisDomainPadded(pdr.map((p) => p.x));
+    const rawClamp = xKind === "radius_mm" ? 37 : undefined;
+    const deltaClamp = xKind === "radius_mm" ? 37 - r0 : undefined;
+    const prXDomain = axisDomainPadded(pr.map((p) => p.x), 0.06, rawClamp);
+    const pdrXDomain = axisDomainPadded(pdr.map((p) => p.x), 0.06, deltaClamp);
     return { pr, pdr, loops, w3070, w3070Mpa, prXDomain, pdrXDomain, nPoints: pvPts.length, r0 };
   }, [curve, xKind, seatingRmm]);
 
