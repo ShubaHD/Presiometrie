@@ -235,6 +235,57 @@ function indexRange(a: string, b: string): { from: number; to: number } | null {
   return { from: Math.min(from, to), to: Math.max(from, to) };
 }
 
+type ChartZoomDraft = {
+  pr: { xMin: string; xMax: string; yMin: string; yMax: string };
+  pdr: { xMin: string; xMax: string; yMin: string; yMax: string };
+};
+
+function toNumOrNull(s: string): number | null {
+  const n = Number(String(s ?? "").trim().replace(",", "."));
+  return Number.isFinite(n) ? n : null;
+}
+
+function normalizeZoomPair(min: number | null, max: number | null): [number, number] | null {
+  if (min == null || max == null) return null;
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return null;
+  if (!(max > min)) return null;
+  return [min, max];
+}
+
+function parseChartZoomDraft(raw: unknown): ChartZoomDraft {
+  const empty: ChartZoomDraft = {
+    pr: { xMin: "", xMax: "", yMin: "", yMax: "" },
+    pdr: { xMin: "", xMax: "", yMin: "", yMax: "" },
+  };
+  let doc: unknown = raw;
+  if (typeof doc === "string") {
+    const s = doc.trim();
+    if (!s) return empty;
+    try {
+      doc = JSON.parse(s) as unknown;
+    } catch {
+      return empty;
+    }
+  }
+  if (!doc || typeof doc !== "object") return empty;
+  const o = doc as Record<string, unknown>;
+  const z = o.chartZoom;
+  if (!z || typeof z !== "object") return empty;
+  const zz = z as Record<string, unknown>;
+  const readBox = (key: "pr" | "pdr") => {
+    const v = zz[key];
+    if (!v || typeof v !== "object") return empty[key];
+    const r = v as Record<string, unknown>;
+    return {
+      xMin: r.xMin == null ? "" : String(r.xMin),
+      xMax: r.xMax == null ? "" : String(r.xMax),
+      yMin: r.yMin == null ? "" : String(r.yMin),
+      yMax: r.yMax == null ? "" : String(r.yMax),
+    };
+  };
+  return { pr: readBox("pr"), pdr: readBox("pdr") };
+}
+
 /** Manual efectiv pentru previzualizare grafic: draft dacă mod manual, altfel setările salvate. */
 function buildEffectiveManual(
   draft: {
@@ -446,6 +497,11 @@ export function TestWorkspace({
     })),
   }));
 
+  const [chartZoomDraft, setChartZoomDraft] = useState<ChartZoomDraft>(() => ({
+    pr: { xMin: "", xMax: "", yMin: "", yMax: "" },
+    pdr: { xMin: "", xMax: "", yMin: "", yMax: "" },
+  }));
+
   useEffect(() => {
     const mode = manualSettings?.mode ?? "auto";
     const load1 = manualSettings?.load1 ?? null;
@@ -467,12 +523,21 @@ export function TestWorkspace({
         };
       }),
     }));
-  }, [manualSettings]);
+    setChartZoomDraft(parseChartZoomDraft((test as { presiometry_settings_json?: unknown }).presiometry_settings_json ?? null));
+  }, [manualSettings, test]);
 
   const effectiveManual = useMemo(
     () => buildEffectiveManual(manualDraft, manualSettings, xKind),
     [manualDraft, manualSettings, xKind],
   );
+
+  const zoomDomains = useMemo(() => {
+    const prX = normalizeZoomPair(toNumOrNull(chartZoomDraft.pr.xMin), toNumOrNull(chartZoomDraft.pr.xMax));
+    const prY = normalizeZoomPair(toNumOrNull(chartZoomDraft.pr.yMin), toNumOrNull(chartZoomDraft.pr.yMax));
+    const pdrX = normalizeZoomPair(toNumOrNull(chartZoomDraft.pdr.xMin), toNumOrNull(chartZoomDraft.pdr.xMax));
+    const pdrY = normalizeZoomPair(toNumOrNull(chartZoomDraft.pdr.yMin), toNumOrNull(chartZoomDraft.pdr.yMax));
+    return { prX, prY, pdrX, pdrY };
+  }, [chartZoomDraft]);
 
   const regressionSegments = useMemo(() => {
     if (!okType || !curve || chartSeries.nPoints < 2) return null;
@@ -709,6 +774,28 @@ export function TestWorkspace({
       if (to <= from) return null;
       return { from, to };
     };
+    const numOrUndef = (s: string) => {
+      const n = toNumOrNull(s);
+      return n == null ? undefined : n;
+    };
+    const chartZoom = (() => {
+      const pr = {
+        xMin: numOrUndef(chartZoomDraft.pr.xMin),
+        xMax: numOrUndef(chartZoomDraft.pr.xMax),
+        yMin: numOrUndef(chartZoomDraft.pr.yMin),
+        yMax: numOrUndef(chartZoomDraft.pr.yMax),
+      };
+      const pdr = {
+        xMin: numOrUndef(chartZoomDraft.pdr.xMin),
+        xMax: numOrUndef(chartZoomDraft.pdr.xMax),
+        yMin: numOrUndef(chartZoomDraft.pdr.yMin),
+        yMax: numOrUndef(chartZoomDraft.pdr.yMax),
+      };
+      const hasAny =
+        Object.values(pr).some((v) => v != null) || Object.values(pdr).some((v) => v != null);
+      return hasAny ? { pr, pdr } : null;
+    })();
+
     return {
       mode: manualDraft.mode,
       x_kind: xKind,
@@ -721,10 +808,11 @@ export function TestWorkspace({
               gur: range(l.gur_from, l.gur_to),
             }))
           : [],
+      chartZoom,
     };
-  }, [okType, manualDraft, xKind]);
+  }, [okType, manualDraft, xKind, chartZoomDraft]);
 
-  const saveManualSettings = async () => {
+  const savePresiometrySettings = async (okMessage: string) => {
     if (!okType) return;
     setBusy(true);
     setErr(null);
@@ -735,7 +823,6 @@ export function TestWorkspace({
         setBusy(false);
         return;
       }
-
       const res = await fetch(`/api/tests/${testId}`, {
         method: "PATCH",
         headers: jsonLabHeaders(),
@@ -743,13 +830,17 @@ export function TestWorkspace({
       });
       const json = (await res.json()) as { error?: string };
       if (!res.ok) throw new Error(json.error ?? "Eroare salvare setări.");
-      setMsg("Setări manuale salvate.");
+      setMsg(okMessage);
       await load({ silent: true });
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Eroare");
     } finally {
       setBusy(false);
     }
+  };
+
+  const saveManualSettings = async () => {
+    await savePresiometrySettings("Setări salvate.");
   };
 
   const presetRows = useMemo(() => (okType ? MEASUREMENT_PRESETS[okType] : []), [okType]);
@@ -1311,7 +1402,7 @@ export function TestWorkspace({
                           <XAxis
                             type="number"
                             dataKey="x"
-                            domain={chartSeries.prXDomain ?? ["auto", "auto"]}
+                            domain={zoomDomains.prX ?? chartSeries.prXDomain ?? ["auto", "auto"]}
                             ticks={
                               xKind === "radius_mm" && prXAxisRadiusTicks?.length ? prXAxisRadiusTicks : undefined
                             }
@@ -1324,6 +1415,7 @@ export function TestWorkspace({
                           <YAxis
                             type="number"
                             dataKey="p_mpa"
+                            domain={zoomDomains.prY ?? undefined}
                             tick={{ fontSize: 11 }}
                             label={{ value: "p (MPa)", angle: -90, position: "insideLeft", style: { fontSize: 11 } }}
                           />
@@ -1472,7 +1564,7 @@ export function TestWorkspace({
                           <XAxis
                             type="number"
                             dataKey="x"
-                            domain={chartSeries.pdrXDomain ?? ["auto", "auto"]}
+                            domain={zoomDomains.pdrX ?? chartSeries.pdrXDomain ?? ["auto", "auto"]}
                             ticks={
                               xKind === "radius_mm" && pdrXAxisDeltaTicks?.length ? pdrXAxisDeltaTicks : undefined
                             }
@@ -1490,6 +1582,7 @@ export function TestWorkspace({
                           <YAxis
                             type="number"
                             dataKey="p_mpa"
+                            domain={zoomDomains.pdrY ?? undefined}
                             tick={{ fontSize: 11 }}
                             label={{ value: "p (MPa)", angle: -90, position: "insideLeft", style: { fontSize: 11 } }}
                           />
@@ -1894,6 +1987,157 @@ export function TestWorkspace({
                       <Button type="button" variant="secondary" disabled={busy} onClick={() => void saveManualSettings()}>
                         Salvează selecții
                       </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ) : null}
+
+              {okType !== "presiometry_program_c" ? (
+                <Card className="bg-muted/30">
+                  <CardHeader>
+                    <CardTitle className="text-sm">Zoom grafic (salvat pentru PDF)</CardTitle>
+                    <CardDescription className="text-xs">
+                      Setează domeniile axelor pentru graficele din tab-ul „Grafice” și pentru PDF (previzualizare / generare).
+                      Unități: <strong>X</strong> în {xKind === "radius_mm" ? "mm" : "cm³"} (R / V sau δ / ΔV),{" "}
+                      <strong>Y</strong> în MPa.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="grid gap-3">
+                      <div className="text-muted-foreground text-xs font-medium">p–{xKind === "radius_mm" ? "R" : "V"} (raw)</div>
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                        <div>
+                          <Label className="text-xs">X min</Label>
+                          <Input
+                            value={chartZoomDraft.pr.xMin}
+                            onChange={(e) =>
+                              setChartZoomDraft((z) => ({ ...z, pr: { ...z.pr, xMin: e.target.value } }))
+                            }
+                            disabled={busy}
+                            placeholder="ex. 37"
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-xs">X max</Label>
+                          <Input
+                            value={chartZoomDraft.pr.xMax}
+                            onChange={(e) =>
+                              setChartZoomDraft((z) => ({ ...z, pr: { ...z.pr, xMax: e.target.value } }))
+                            }
+                            disabled={busy}
+                            placeholder="ex. 40"
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-xs">Y min</Label>
+                          <Input
+                            value={chartZoomDraft.pr.yMin}
+                            onChange={(e) =>
+                              setChartZoomDraft((z) => ({ ...z, pr: { ...z.pr, yMin: e.target.value } }))
+                            }
+                            disabled={busy}
+                            placeholder="ex. 0"
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-xs">Y max</Label>
+                          <Input
+                            value={chartZoomDraft.pr.yMax}
+                            onChange={(e) =>
+                              setChartZoomDraft((z) => ({ ...z, pr: { ...z.pr, yMax: e.target.value } }))
+                            }
+                            disabled={busy}
+                            placeholder="ex. 20"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-3">
+                      <div className="text-muted-foreground text-xs font-medium">
+                        p–{xKind === "radius_mm" ? "δ" : "ΔV"} (delta)
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                        <div>
+                          <Label className="text-xs">X min</Label>
+                          <Input
+                            value={chartZoomDraft.pdr.xMin}
+                            onChange={(e) =>
+                              setChartZoomDraft((z) => ({ ...z, pdr: { ...z.pdr, xMin: e.target.value } }))
+                            }
+                            disabled={busy}
+                            placeholder={xKind === "radius_mm" ? "ex. 37-R0" : "ex. 0"}
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-xs">X max</Label>
+                          <Input
+                            value={chartZoomDraft.pdr.xMax}
+                            onChange={(e) =>
+                              setChartZoomDraft((z) => ({ ...z, pdr: { ...z.pdr, xMax: e.target.value } }))
+                            }
+                            disabled={busy}
+                            placeholder="ex. 2"
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-xs">Y min</Label>
+                          <Input
+                            value={chartZoomDraft.pdr.yMin}
+                            onChange={(e) =>
+                              setChartZoomDraft((z) => ({ ...z, pdr: { ...z.pdr, yMin: e.target.value } }))
+                            }
+                            disabled={busy}
+                            placeholder="ex. 0"
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-xs">Y max</Label>
+                          <Input
+                            value={chartZoomDraft.pdr.yMax}
+                            onChange={(e) =>
+                              setChartZoomDraft((z) => ({ ...z, pdr: { ...z.pdr, yMax: e.target.value } }))
+                            }
+                            disabled={busy}
+                            placeholder="ex. 20"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      <Button type="button" variant="secondary" disabled={busy} onClick={() => void savePresiometrySettings("Zoom salvat.")}>
+                        Salvează zoom
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        disabled={busy}
+                        onClick={() => {
+                          setChartZoomDraft({
+                            pr: { xMin: "", xMax: "", yMin: "", yMax: "" },
+                            pdr: { xMin: "", xMax: "", yMin: "", yMax: "" },
+                          });
+                          void savePresiometrySettings("Zoom resetat (auto).");
+                        }}
+                      >
+                        Resetează zoom
+                      </Button>
+                      {xKind === "radius_mm" ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          disabled={busy}
+                          onClick={() =>
+                            setChartZoomDraft((z) => ({
+                              ...z,
+                              pr: { ...z.pr, xMin: "37" },
+                            }))
+                          }
+                        >
+                          Preset: X min 37 mm (p–R)
+                        </Button>
+                      ) : null}
                     </div>
                   </CardContent>
                 </Card>

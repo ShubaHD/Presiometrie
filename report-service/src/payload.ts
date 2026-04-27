@@ -224,6 +224,8 @@ function svgLineChart(opts: {
   points: Array<{ x: number; y: number }>;
   padAxesRatio?: number;
   minXClamp?: number;
+  xDomain?: { min: number; max: number } | null;
+  yDomain?: { min: number; max: number } | null;
   bands?: Array<{ x1: number; x2: number; fill: string; opacity?: number }>;
   segmentLines?: Array<{
     x1: number;
@@ -266,6 +268,24 @@ function svgLineChart(opts: {
   }
   if (opts.minXClamp != null && Number.isFinite(opts.minXClamp)) {
     minX = Math.max(minX, opts.minXClamp);
+  }
+  if (
+    opts.xDomain &&
+    Number.isFinite(opts.xDomain.min) &&
+    Number.isFinite(opts.xDomain.max) &&
+    opts.xDomain.max > opts.xDomain.min
+  ) {
+    minX = opts.xDomain.min;
+    maxX = opts.xDomain.max;
+  }
+  if (
+    opts.yDomain &&
+    Number.isFinite(opts.yDomain.min) &&
+    Number.isFinite(opts.yDomain.max) &&
+    opts.yDomain.max > opts.yDomain.min
+  ) {
+    minY = opts.yDomain.min;
+    maxY = opts.yDomain.max;
   }
   let dx = maxX - minX;
   let dy = maxY - minY;
@@ -3167,6 +3187,41 @@ export async function buildPresiometryPayload(
         })
       : null;
 
+  const chartZoom = (() => {
+    const raw = (test as { presiometry_settings_json?: unknown }).presiometry_settings_json ?? null;
+    let doc: unknown = raw;
+    if (typeof doc === "string") {
+      const s = doc.trim();
+      if (!s) return null;
+      try {
+        doc = JSON.parse(s) as unknown;
+      } catch {
+        return null;
+      }
+    }
+    if (!doc || typeof doc !== "object") return null;
+    const o = doc as Record<string, unknown>;
+    const z = o.chartZoom;
+    if (!z || typeof z !== "object") return null;
+    const zz = z as Record<string, unknown>;
+    const box = (k: "pr" | "pdr") => {
+      const v = zz[k];
+      if (!v || typeof v !== "object") return null;
+      const r = v as Record<string, unknown>;
+      const minX = Number(r.xMin);
+      const maxX = Number(r.xMax);
+      const minY = Number(r.yMin);
+      const maxY = Number(r.yMax);
+      return {
+        x:
+          Number.isFinite(minX) && Number.isFinite(maxX) && maxX > minX ? ({ min: minX, max: maxX } as const) : null,
+        y:
+          Number.isFinite(minY) && Number.isFinite(maxY) && maxY > minY ? ({ min: minY, max: maxY } as const) : null,
+      };
+    };
+    return { pr: box("pr"), pdr: box("pdr") };
+  })();
+
   const svgPR =
     curvePts.length >= 2
       ? svgLineChart({
@@ -3176,6 +3231,8 @@ export async function buildPresiometryPayload(
           points: curvePts.map((p) => ({ x: p.x, y: p.p_kpa / 1000 })),
           padAxesRatio: tt !== "presiometry_program_c" ? 0.06 : undefined,
           minXClamp: xKind === "radius_mm" ? 37 : undefined,
+          xDomain: chartZoom?.pr?.x ?? null,
+          yDomain: chartZoom?.pr?.y ?? null,
           bands: overlaysPdf?.bandsPr,
           segmentLines: overlaysPdf?.linesPr,
         })
@@ -3193,6 +3250,8 @@ export async function buildPresiometryPayload(
           })),
           padAxesRatio: tt !== "presiometry_program_c" ? 0.06 : undefined,
           minXClamp: xKind === "radius_mm" ? 37 - seatingR0 : undefined,
+          xDomain: chartZoom?.pdr?.x ?? null,
+          yDomain: chartZoom?.pdr?.y ?? null,
           bands: overlaysPdf?.bandsPdr,
           segmentLines: overlaysPdf?.linesPdr,
         })
