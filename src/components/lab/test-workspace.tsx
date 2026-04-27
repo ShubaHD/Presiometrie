@@ -503,6 +503,7 @@ export function TestWorkspace({
   }));
 
   useEffect(() => {
+    if (!test) return;
     const mode = manualSettings?.mode ?? "auto";
     const load1 = manualSettings?.load1 ?? null;
     const loops = manualSettings?.loops ?? [];
@@ -523,7 +524,9 @@ export function TestWorkspace({
         };
       }),
     }));
-    setChartZoomDraft(parseChartZoomDraft((test as { presiometry_settings_json?: unknown }).presiometry_settings_json ?? null));
+    setChartZoomDraft(
+      parseChartZoomDraft((test as { presiometry_settings_json?: unknown } | null)?.presiometry_settings_json ?? null),
+    );
   }, [manualSettings, test]);
 
   const effectiveManual = useMemo(
