@@ -185,7 +185,8 @@ export function detectTrailingUnloadByPressurePdf(pts, afterIndexInclusive) {
         return null;
     const peakIndex = prev.to + 1;
     const valleyIndex = Math.min(pts.length - 1, last.to + 1);
-    if (peakIndex <= startI)
+    // Allow peakIndex == startI: the terminal unloading peak can coincide with the last loop's nextPeakIndex.
+    if (peakIndex < startI)
         return null;
     if (valleyIndex <= peakIndex)
         return null;

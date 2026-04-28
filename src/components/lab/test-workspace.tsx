@@ -236,8 +236,8 @@ function indexRange(a: string, b: string): { from: number; to: number } | null {
 }
 
 type ChartZoomDraft = {
-  pr: { xMin: string; xMax: string; yMin: string; yMax: string };
-  pdr: { xMin: string; xMax: string; yMin: string; yMax: string };
+  pr: { xMin: string; xMax: string };
+  pdr: { xMin: string; xMax: string };
 };
 
 function toNumOrNull(s: string): number | null {
@@ -254,8 +254,8 @@ function normalizeZoomPair(min: number | null, max: number | null): [number, num
 
 function parseChartZoomDraft(raw: unknown): ChartZoomDraft {
   const empty: ChartZoomDraft = {
-    pr: { xMin: "", xMax: "", yMin: "", yMax: "" },
-    pdr: { xMin: "", xMax: "", yMin: "", yMax: "" },
+    pr: { xMin: "", xMax: "" },
+    pdr: { xMin: "", xMax: "" },
   };
   let doc: unknown = raw;
   if (typeof doc === "string") {
@@ -279,8 +279,6 @@ function parseChartZoomDraft(raw: unknown): ChartZoomDraft {
     return {
       xMin: r.xMin == null ? "" : String(r.xMin),
       xMax: r.xMax == null ? "" : String(r.xMax),
-      yMin: r.yMin == null ? "" : String(r.yMin),
-      yMax: r.yMax == null ? "" : String(r.yMax),
     };
   };
   return { pr: readBox("pr"), pdr: readBox("pdr") };
@@ -498,8 +496,8 @@ export function TestWorkspace({
   }));
 
   const [chartZoomDraft, setChartZoomDraft] = useState<ChartZoomDraft>(() => ({
-    pr: { xMin: "", xMax: "", yMin: "", yMax: "" },
-    pdr: { xMin: "", xMax: "", yMin: "", yMax: "" },
+    pr: { xMin: "", xMax: "" },
+    pdr: { xMin: "", xMax: "" },
   }));
 
   useEffect(() => {
@@ -536,10 +534,8 @@ export function TestWorkspace({
 
   const zoomDomains = useMemo(() => {
     const prX = normalizeZoomPair(toNumOrNull(chartZoomDraft.pr.xMin), toNumOrNull(chartZoomDraft.pr.xMax));
-    const prY = normalizeZoomPair(toNumOrNull(chartZoomDraft.pr.yMin), toNumOrNull(chartZoomDraft.pr.yMax));
     const pdrX = normalizeZoomPair(toNumOrNull(chartZoomDraft.pdr.xMin), toNumOrNull(chartZoomDraft.pdr.xMax));
-    const pdrY = normalizeZoomPair(toNumOrNull(chartZoomDraft.pdr.yMin), toNumOrNull(chartZoomDraft.pdr.yMax));
-    return { prX, prY, pdrX, pdrY };
+    return { prX, pdrX };
   }, [chartZoomDraft]);
 
   const regressionSegments = useMemo(() => {
@@ -785,17 +781,12 @@ export function TestWorkspace({
       const pr = {
         xMin: numOrUndef(chartZoomDraft.pr.xMin),
         xMax: numOrUndef(chartZoomDraft.pr.xMax),
-        yMin: numOrUndef(chartZoomDraft.pr.yMin),
-        yMax: numOrUndef(chartZoomDraft.pr.yMax),
       };
       const pdr = {
         xMin: numOrUndef(chartZoomDraft.pdr.xMin),
         xMax: numOrUndef(chartZoomDraft.pdr.xMax),
-        yMin: numOrUndef(chartZoomDraft.pdr.yMin),
-        yMax: numOrUndef(chartZoomDraft.pdr.yMax),
       };
-      const hasAny =
-        Object.values(pr).some((v) => v != null) || Object.values(pdr).some((v) => v != null);
+      const hasAny = Object.values(pr).some((v) => v != null) || Object.values(pdr).some((v) => v != null);
       return hasAny ? { pr, pdr } : null;
     })();
 
@@ -1418,7 +1409,6 @@ export function TestWorkspace({
                           <YAxis
                             type="number"
                             dataKey="p_mpa"
-                            domain={zoomDomains.prY ?? undefined}
                             tick={{ fontSize: 11 }}
                             label={{ value: "p (MPa)", angle: -90, position: "insideLeft", style: { fontSize: 11 } }}
                           />
@@ -1585,7 +1575,6 @@ export function TestWorkspace({
                           <YAxis
                             type="number"
                             dataKey="p_mpa"
-                            domain={zoomDomains.pdrY ?? undefined}
                             tick={{ fontSize: 11 }}
                             label={{ value: "p (MPa)", angle: -90, position: "insideLeft", style: { fontSize: 11 } }}
                           />
@@ -2001,14 +1990,13 @@ export function TestWorkspace({
                     <CardTitle className="text-sm">Zoom grafic (salvat pentru PDF)</CardTitle>
                     <CardDescription className="text-xs">
                       Setează domeniile axelor pentru graficele din tab-ul „Grafice” și pentru PDF (previzualizare / generare).
-                      Unități: <strong>X</strong> în {xKind === "radius_mm" ? "mm" : "cm³"} (R / V sau δ / ΔV),{" "}
-                      <strong>Y</strong> în MPa.
+                      Unități: <strong>X</strong> în {xKind === "radius_mm" ? "mm" : "cm³"} (R / V sau δ / ΔV). Axa Y rămâne pe auto.
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <div className="grid gap-3">
                       <div className="text-muted-foreground text-xs font-medium">p–{xKind === "radius_mm" ? "R" : "V"} (raw)</div>
-                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                      <div className="grid grid-cols-2 gap-2">
                         <div>
                           <Label className="text-xs">X min</Label>
                           <Input
@@ -2031,28 +2019,6 @@ export function TestWorkspace({
                             placeholder="ex. 40"
                           />
                         </div>
-                        <div>
-                          <Label className="text-xs">Y min</Label>
-                          <Input
-                            value={chartZoomDraft.pr.yMin}
-                            onChange={(e) =>
-                              setChartZoomDraft((z) => ({ ...z, pr: { ...z.pr, yMin: e.target.value } }))
-                            }
-                            disabled={busy}
-                            placeholder="ex. 0"
-                          />
-                        </div>
-                        <div>
-                          <Label className="text-xs">Y max</Label>
-                          <Input
-                            value={chartZoomDraft.pr.yMax}
-                            onChange={(e) =>
-                              setChartZoomDraft((z) => ({ ...z, pr: { ...z.pr, yMax: e.target.value } }))
-                            }
-                            disabled={busy}
-                            placeholder="ex. 20"
-                          />
-                        </div>
                       </div>
                     </div>
 
@@ -2060,7 +2026,7 @@ export function TestWorkspace({
                       <div className="text-muted-foreground text-xs font-medium">
                         p–{xKind === "radius_mm" ? "δ" : "ΔV"} (delta)
                       </div>
-                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                      <div className="grid grid-cols-2 gap-2">
                         <div>
                           <Label className="text-xs">X min</Label>
                           <Input
@@ -2083,28 +2049,6 @@ export function TestWorkspace({
                             placeholder="ex. 2"
                           />
                         </div>
-                        <div>
-                          <Label className="text-xs">Y min</Label>
-                          <Input
-                            value={chartZoomDraft.pdr.yMin}
-                            onChange={(e) =>
-                              setChartZoomDraft((z) => ({ ...z, pdr: { ...z.pdr, yMin: e.target.value } }))
-                            }
-                            disabled={busy}
-                            placeholder="ex. 0"
-                          />
-                        </div>
-                        <div>
-                          <Label className="text-xs">Y max</Label>
-                          <Input
-                            value={chartZoomDraft.pdr.yMax}
-                            onChange={(e) =>
-                              setChartZoomDraft((z) => ({ ...z, pdr: { ...z.pdr, yMax: e.target.value } }))
-                            }
-                            disabled={busy}
-                            placeholder="ex. 20"
-                          />
-                        </div>
                       </div>
                     </div>
 
@@ -2118,8 +2062,8 @@ export function TestWorkspace({
                         disabled={busy}
                         onClick={() => {
                           setChartZoomDraft({
-                            pr: { xMin: "", xMax: "", yMin: "", yMax: "" },
-                            pdr: { xMin: "", xMax: "", yMin: "", yMax: "" },
+                            pr: { xMin: "", xMax: "" },
+                            pdr: { xMin: "", xMax: "" },
                           });
                           void savePresiometrySettings("Zoom resetat (auto).");
                         }}
