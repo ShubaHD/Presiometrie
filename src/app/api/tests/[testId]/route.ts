@@ -1,5 +1,7 @@
 import { requireAuth } from "@/lib/auth/session";
 import { getLabActorFromRequest } from "@/lib/lab-actor";
+import { requireAdmin } from "@/lib/auth/session";
+import { createAdminClient } from "@/lib/supabase/admin";
 import {
   clampPresiometryCurveForStorage,
   parsePresiometryCurvePayload,
@@ -161,6 +163,34 @@ export async function PATCH(req: Request, { params }: Params) {
     const { data, error } = await supabase.from("tests").update(patch).eq("id", testId).select("*").single();
     if (error) throw error;
     return NextResponse.json(data);
+  } catch (e) {
+    return NextResponse.json({ error: toErrorMessage(e) }, { status: 500 });
+  }
+}
+
+export async function DELETE(_req: Request, { params }: Params) {
+  try {
+    const auth = await requireAdmin();
+    if (!auth.ok) return auth.res;
+    const { testId } = await params;
+
+    // Use service role for admin soft-delete to avoid RLS/trigger edge cases.
+    const admin = createAdminClient();
+    const { data: deleted, error } = await admin
+      .from("tests")
+      .update({ deleted_at: new Date().toISOString() })
+      .eq("id", testId)
+      .select("id");
+    if (error) {
+      if (error.code === "42501" || error.code === "P0001" || /row-level security/i.test(error.message)) {
+        return NextResponse.json({ error: "Mutarea la coș este permisă doar administratorilor." }, { status: 403 });
+      }
+      throw error;
+    }
+    if (!deleted || deleted.length === 0) {
+      return NextResponse.json({ error: "Testul nu a fost găsit sau nu poate fi mutat la coș." }, { status: 404 });
+    }
+    return NextResponse.json({ ok: true });
   } catch (e) {
     return NextResponse.json({ error: toErrorMessage(e) }, { status: 500 });
   }

@@ -53,8 +53,16 @@ export function ExplorerDeleteDialog(props: {
     setErr(null);
     try {
       const res = await fetch(apiUrl, { method: "DELETE", headers: jsonLabHeaders() });
-      const json = (await res.json()) as { error?: string };
-      if (!res.ok) throw new Error(json.error ?? "Ștergere eșuată");
+      const contentType = res.headers.get("content-type") ?? "";
+      let json: { error?: string } = {};
+      if (contentType.includes("application/json")) {
+        try {
+          json = (await res.json()) as { error?: string };
+        } catch {
+          json = {};
+        }
+      }
+      if (!res.ok) throw new Error(json.error ?? `Ștergere eșuată (${res.status})`);
       onDeleted();
       setOpen(false);
       router.refresh();
