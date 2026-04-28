@@ -252,7 +252,20 @@ export function buildProgramARegressionSegments(
   trailingUnload: PresiometryRegressionSegment | null;
 } {
   const load1 = buildFirstLoadingSegmentProgramA(pts, manual, loops);
-  const loopSegs = loops.slice(0, 10).map((lp, idx) => buildLoopUnloadReloadSegments(pts, manual, lp, idx));
+  // In manual mode we must honor user-provided GU/GR ranges even when no loops are auto-detected.
+  // Some tests are just GL1 + terminal unloading (no +/−/+ loops), so `detectLoopsByPressure` returns [].
+  const loopSegs =
+    manual?.mode === "manual"
+      ? Array.from({ length: 10 }).map((_, idx) => {
+          const i = idx + 1;
+          const manLoop = manual.loops?.[idx] ?? null;
+          const un = manLoop?.unload ? manualRangeArrays(pts, manLoop.unload.from, manLoop.unload.to) : null;
+          const re = manLoop?.reload ? manualRangeArrays(pts, manLoop.reload.from, manLoop.reload.to) : null;
+          const unload = un ? segmentFromArrays(`GU${i}`, "manual", un.xsV, un.ysP, un.indexFrom, un.indexTo) : null;
+          const reload = re ? segmentFromArrays(`GR${i}`, "manual", re.xsV, re.ysP, re.indexFrom, re.indexTo) : null;
+          return { unload, reload };
+        })
+      : loops.slice(0, 10).map((lp, idx) => buildLoopUnloadReloadSegments(pts, manual, lp, idx));
   let trailingUnload: PresiometryRegressionSegment | null = null;
 
   // Only in auto mode: if the series ends with an unloading branch (no reload), surface it as GU{loops+1}.
