@@ -111,8 +111,8 @@ export const calculatePresiometryProgramA: CalculationFn = (m: MeasurementMap, c
   }
 
   let order = 200;
-  loops.slice(0, 10).forEach((_, idx) => {
-    const pair = segments.loops[idx];
+  // Use `segments.loops` so manual GU/GR works even when no loops are auto-detected.
+  segments.loops.slice(0, 10).forEach((pair, idx) => {
     if (!pair) return;
 
     const regUn = pair.unload?.regression ?? { slope: null, intercept: null, r2: null, n: 0 };
