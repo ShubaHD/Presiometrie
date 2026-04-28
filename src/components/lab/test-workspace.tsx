@@ -94,7 +94,10 @@ function axisDomainPadded(values: number[], padRatio = 0.06, clampMin?: number):
     if (v > hi) hi = v;
   }
   if (!Number.isFinite(lo) || !Number.isFinite(hi)) return undefined;
-  if (clampMin != null && Number.isFinite(clampMin)) lo = Math.max(lo, clampMin);
+  // Clamp only when the data actually reaches that clamp; otherwise we can invert the domain (hi < clampMin)
+  // and Recharts may behave unpredictably (hiding reference lines/labels).
+  if (clampMin != null && Number.isFinite(clampMin) && hi > clampMin) lo = Math.max(lo, clampMin);
+  if (!(hi > lo)) return undefined;
   const span = hi - lo;
   const pad =
     span > 0 ? span * padRatio : Math.max(Math.abs(lo), Math.abs(hi), 1e-6) * Math.max(padRatio, 0.02);

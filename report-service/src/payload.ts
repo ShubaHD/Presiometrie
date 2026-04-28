@@ -266,8 +266,9 @@ function svgLineChart(opts: {
     minY = Math.min(minY, m.y);
     maxY = Math.max(maxY, m.y);
   }
-  if (opts.minXClamp != null && Number.isFinite(opts.minXClamp)) {
-    minX = Math.max(minX, opts.minXClamp);
+  if (opts.minXClamp != null && Number.isFinite(opts.minXClamp) && maxX > opts.minXClamp) {
+    const nextMinX = Math.max(minX, opts.minXClamp);
+    if (maxX > nextMinX) minX = nextMinX;
   }
   if (
     opts.xDomain &&
