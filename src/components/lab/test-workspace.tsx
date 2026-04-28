@@ -1451,7 +1451,7 @@ export function TestWorkspace({
                                 stroke={t.stroke}
                                 strokeWidth={2}
                                 strokeDasharray="6 4"
-                                ifOverflow="extendDomain"
+                                ifOverflow="visible"
                                 label={{
                                   value: t.label,
                                   position: "middle",
@@ -1617,7 +1617,7 @@ export function TestWorkspace({
                                 stroke={t.stroke}
                                 strokeWidth={2}
                                 strokeDasharray="6 4"
-                                ifOverflow="extendDomain"
+                                ifOverflow="visible"
                                 label={{
                                   value: t.label,
                                   position: "middle",
