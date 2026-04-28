@@ -75,6 +75,23 @@ function svgLineChart(opts) {
         minY = Math.min(minY, m.y);
         maxY = Math.max(maxY, m.y);
     }
+    if (opts.minXClamp != null && Number.isFinite(opts.minXClamp)) {
+        minX = Math.max(minX, opts.minXClamp);
+    }
+    if (opts.xDomain &&
+        Number.isFinite(opts.xDomain.min) &&
+        Number.isFinite(opts.xDomain.max) &&
+        opts.xDomain.max > opts.xDomain.min) {
+        minX = opts.xDomain.min;
+        maxX = opts.xDomain.max;
+    }
+    if (opts.yDomain &&
+        Number.isFinite(opts.yDomain.min) &&
+        Number.isFinite(opts.yDomain.max) &&
+        opts.yDomain.max > opts.yDomain.min) {
+        minY = opts.yDomain.min;
+        maxY = opts.yDomain.max;
+    }
     let dx = maxX - minX;
     let dy = maxY - minY;
     if (!(dx > 0) || !(dy > 0))
@@ -142,7 +159,7 @@ function svgLineChart(opts) {
     const segSvg = (opts.segmentLines ?? [])
         .map((s) => {
         const dash = s.dash ? ` stroke-dasharray="${escXml(s.dash)}"` : "";
-        return `<line x1="${sx(s.x1).toFixed(2)}" y1="${sy(s.y1).toFixed(2)}" x2="${sx(s.x2).toFixed(2)}" y2="${sy(s.y2).toFixed(2)}" stroke="${escXml(s.stroke)}" stroke-width="2"${dash} />`;
+        return `<line x1="${sx(s.x1).toFixed(2)}" y1="${sy(s.y1).toFixed(2)}" x2="${sx(s.x2).toFixed(2)}" y2="${sy(s.y2).toFixed(2)}" stroke="${escXml(s.stroke)}" stroke-width="2.6"${dash} />`;
     })
         .join("\n");
     const segLabelSvg = (opts.segmentLines ?? [])
@@ -183,8 +200,16 @@ function svgLineChart(opts) {
     <line x1="${padL}" y1="${padT}" x2="${padL}" y2="${padT + innerH}" stroke="#888" stroke-width="1" />
     <line x1="${padL}" y1="${padT + innerH}" x2="${padL + innerW}" y2="${padT + innerH}" stroke="#888" stroke-width="1" />
   `;
+    // Chrome/Puppeteer will happily render strokes outside the plot area unless we clip.
+    // This avoids "blue line outside chart" artifacts when points/segments extend beyond the axis range.
+    const clipId = `plotclip-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`;
     return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+  <defs>
+    <clipPath id="${clipId}">
+      <rect x="${padL}" y="${padT}" width="${innerW}" height="${innerH}" />
+    </clipPath>
+  </defs>
   <style>
     .t { font: 12px Arial, sans-serif; fill: #222; }
     .m { font: 10px Arial, sans-serif; fill: #444; }
@@ -193,10 +218,12 @@ function svgLineChart(opts) {
   <text class="t" x="${padL}" y="16">${escXml(opts.title)}</text>
   ${gridTicksSvg}
   ${axis}
-  ${bandsSvg}
-  <path d="${path}" fill="none" stroke="#2a6fdb" stroke-width="1.5" />
-  ${segSvg}
-  ${markSvg}
+  <g clip-path="url(#${clipId})">
+    ${bandsSvg}
+    <path d="${path}" fill="none" stroke="#2a6fdb" stroke-width="1.5" />
+    ${segSvg}
+    ${markSvg}
+  </g>
   ${segLabelSvg}
   <text class="m" x="${padL + innerW / 2}" y="${height - 10}" text-anchor="middle">${escXml(opts.xLabel)}</text>
   <text class="m" x="14" y="${padT + innerH / 2}" transform="rotate(-90 14 ${padT + innerH / 2})" text-anchor="middle">${escXml(opts.yLabel)}</text>
@@ -2576,6 +2603,43 @@ export async function buildPresiometryPayload(supabase, testId, templateCode, te
             seatingR0: xKind === "radius_mm" ? seatingR0 : curvePts[0].x,
         })
         : null;
+    const chartZoom = (() => {
+        const raw = test.presiometry_settings_json ?? null;
+        let doc = raw;
+        if (typeof doc === "string") {
+            const s = doc.trim();
+            if (!s)
+                return null;
+            try {
+                doc = JSON.parse(s);
+            }
+            catch {
+                return null;
+            }
+        }
+        if (!doc || typeof doc !== "object")
+            return null;
+        const o = doc;
+        const z = o.chartZoom;
+        if (!z || typeof z !== "object")
+            return null;
+        const zz = z;
+        const box = (k) => {
+            const v = zz[k];
+            if (!v || typeof v !== "object")
+                return null;
+            const r = v;
+            const minX = Number(r.xMin);
+            const maxX = Number(r.xMax);
+            const minY = Number(r.yMin);
+            const maxY = Number(r.yMax);
+            return {
+                x: Number.isFinite(minX) && Number.isFinite(maxX) && maxX > minX ? { min: minX, max: maxX } : null,
+                y: Number.isFinite(minY) && Number.isFinite(maxY) && maxY > minY ? { min: minY, max: maxY } : null,
+            };
+        };
+        return { pr: box("pr"), pdr: box("pdr") };
+    })();
     const svgPR = curvePts.length >= 2
         ? svgLineChart({
             title: xKind === "radius_mm" ? tr.chart_pR : tr.chart_pV,
@@ -2583,6 +2647,9 @@ export async function buildPresiometryPayload(supabase, testId, templateCode, te
             yLabel: tr.axis_p_mpa,
             points: curvePts.map((p) => ({ x: p.x, y: p.p_kpa / 1000 })),
             padAxesRatio: tt !== "presiometry_program_c" ? 0.06 : undefined,
+            minXClamp: xKind === "radius_mm" ? 37 : undefined,
+            xDomain: chartZoom?.pr?.x ?? null,
+            yDomain: chartZoom?.pr?.y ?? null,
             bands: overlaysPdf?.bandsPr,
             segmentLines: overlaysPdf?.linesPr,
         })
@@ -2597,6 +2664,9 @@ export async function buildPresiometryPayload(supabase, testId, templateCode, te
                 y: p.p_kpa / 1000,
             })),
             padAxesRatio: tt !== "presiometry_program_c" ? 0.06 : undefined,
+            minXClamp: xKind === "radius_mm" ? 37 - seatingR0 : undefined,
+            xDomain: chartZoom?.pdr?.x ?? null,
+            yDomain: chartZoom?.pdr?.y ?? null,
             bands: overlaysPdf?.bandsPdr,
             segmentLines: overlaysPdf?.linesPdr,
         })

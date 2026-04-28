@@ -401,8 +401,17 @@ function svgLineChart(opts: {
     <line x1="${padL}" y1="${padT + innerH}" x2="${padL + innerW}" y2="${padT + innerH}" stroke="#888" stroke-width="1" />
   `;
 
+  // Chrome/Puppeteer will happily render strokes outside the plot area unless we clip.
+  // This avoids "blue line outside chart" artifacts when points/segments extend beyond the axis range.
+  const clipId = `plotclip-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`;
+
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+  <defs>
+    <clipPath id="${clipId}">
+      <rect x="${padL}" y="${padT}" width="${innerW}" height="${innerH}" />
+    </clipPath>
+  </defs>
   <style>
     .t { font: 12px Arial, sans-serif; fill: #222; }
     .m { font: 10px Arial, sans-serif; fill: #444; }
@@ -411,10 +420,12 @@ function svgLineChart(opts: {
   <text class="t" x="${padL}" y="16">${escXml(opts.title)}</text>
   ${gridTicksSvg}
   ${axis}
-  ${bandsSvg}
-  <path d="${path}" fill="none" stroke="#2a6fdb" stroke-width="1.5" />
-  ${segSvg}
-  ${markSvg}
+  <g clip-path="url(#${clipId})">
+    ${bandsSvg}
+    <path d="${path}" fill="none" stroke="#2a6fdb" stroke-width="1.5" />
+    ${segSvg}
+    ${markSvg}
+  </g>
   ${segLabelSvg}
   <text class="m" x="${padL + innerW / 2}" y="${height - 10}" text-anchor="middle">${escXml(opts.xLabel)}</text>
   <text class="m" x="14" y="${padT + innerH / 2}" transform="rotate(-90 14 ${padT + innerH / 2})" text-anchor="middle">${escXml(opts.yLabel)}</text>
