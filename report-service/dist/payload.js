@@ -2740,7 +2740,12 @@ export async function buildPresiometryPayload(supabase, testId, templateCode, te
         },
         measurements: (() => {
             /** Rânduri refăcute dedesubt (o singură apariție pentru packer / axă / oră). */
-            const PRESIOMETRY_ROW_KEYS_PREPENDED = new Set(["pmt_series_axis", "pmt_packer_diameter_mm", "pmt_start_time"]);
+            const PRESIOMETRY_ROW_KEYS_PREPENDED = new Set([
+                "pmt_series_axis",
+                "pmt_packer_diameter_mm",
+                "pmt_seating_r_mm",
+                "pmt_start_time",
+            ]);
             const base = (measurements ?? [])
                 .filter((m) => !PRESIOMETRY_OMIT_MEASUREMENT_KEYS.has(String(m.key ?? "")))
                 .filter((m) => !PRESIOMETRY_ROW_KEYS_PREPENDED.has(String(m.key ?? "")))
@@ -2757,20 +2762,25 @@ export async function buildPresiometryPayload(supabase, testId, templateCode, te
             const packer = (measurements ?? []).find((m) => m.key === "pmt_packer_diameter_mm");
             const packerVal = packer?.value;
             const packerNum = packerVal == null ? NaN : Number(packerVal);
-            const hasPacker = Number.isFinite(packerNum) && packerNum > 0;
+            const packerMmDefault = 70;
+            const packerMm = Number.isFinite(packerNum) && packerNum > 0 ? packerNum : packerMmDefault;
             const axisValue = xKind === "radius_mm" ? tr.series_axis_pr : tr.series_axis_pv;
             const axisNote = { label: tr.series_imported, key: "pmt_series_axis", value: axisValue, unit: "" };
             const out = [...base];
-            if (startTime)
-                out.unshift({ label: tr.start_time_csv, key: "pmt_start_time", value: startTime, unit: "" });
-            if (hasPacker) {
-                out.unshift({
-                    label: tr.packer_diameter,
-                    key: "pmt_packer_diameter_mm",
-                    value: fmtNum(packerNum, 0),
-                    unit: "mm",
-                });
-            }
+            // Always show these rows for consistent presiometry reports (use defaults/"—" when missing).
+            out.unshift({ label: tr.start_time_csv, key: "pmt_start_time", value: startTime || "—", unit: "" });
+            out.unshift({
+                label: tr.packer_diameter,
+                key: "pmt_packer_diameter_mm",
+                value: fmtNum(packerMm, 0),
+                unit: "mm",
+            });
+            out.unshift({
+                label: pmtMeasurementLabelForLocale("pmt_seating_r_mm", "R la așezare", loc),
+                key: "pmt_seating_r_mm",
+                value: Number.isFinite(seatingR0) && seatingR0 > 0 ? fmtNum(seatingR0, 3) : "—",
+                unit: "mm",
+            });
             out.unshift(axisNote);
             return out;
         })(),
