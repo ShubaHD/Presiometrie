@@ -1,4 +1,7 @@
 <section class="section">
   <h2>{{i18n.h2_observations}}</h2>
   <p>{{#if test.notes}}{{test.notes}}{{else}}—{{/if}}</p>
+  {{#if calibrationAnnexNote}}
+  <p class="muted" style="margin-top: 8px;">{{calibrationAnnexNote}}</p>
+  {{/if}}
 </section>

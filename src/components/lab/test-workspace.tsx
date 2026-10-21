@@ -865,6 +865,22 @@ export function TestWorkspace({
 
   useEffect(() => {
     if (!okType) return;
+    const hasKey = presetRows.some((r) => r.key === "pmt_probe_diameter_mm");
+    if (!hasKey) return;
+    const current = form.getValues("pmt_probe_diameter_mm");
+    const n =
+      current === "" || current === null || current === undefined
+        ? null
+        : typeof current === "number"
+          ? current
+          : Number(String(current).replace(",", "."));
+    if (n == null || !Number.isFinite(n) || n <= 0) {
+      form.setValue("pmt_probe_diameter_mm", PMT_PROBE_DIAMETER_MM);
+    }
+  }, [okType, presetRows, form]);
+
+  useEffect(() => {
+    if (!okType) return;
     const hasKey = presetRows.some((r) => r.key === "pmt_seating_r_mm");
     if (!hasKey) return;
     const current = form.getValues("pmt_seating_r_mm");

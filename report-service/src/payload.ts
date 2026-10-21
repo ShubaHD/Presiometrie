@@ -92,6 +92,10 @@ export interface ReportPayload {
   reportPageTitle?: string;
   /** Declarație ISO: testul a fost efectuat conform normei. */
   conformanceStatement?: string;
+  /** Presiometrie: seria din aparat e deja corectată (fără recalibrare în lab). */
+  dataCorrectionNote?: string;
+  /** Presiometrie: calibrările detaliate se prezintă ca anexă. */
+  calibrationAnnexNote?: string;
   /** Date execuție / raport (completate în aplicație). */
   /** Fig. 3 ASTM D5731 (point load), ca data URL. */
   pltAstmFigures?: Array<{ dataUrl: string; caption: string }>;
@@ -3273,6 +3277,8 @@ export async function buildPresiometryPayload(
   const reportNormRef = tr.norm;
   const reportPageTitle = presiometryPageTitle(tt, loc);
   const conformanceStatement = tr.conf_statement;
+  const dataCorrectionNote = tr.data_correction_note;
+  const calibrationAnnexNote = tr.calibration_annex_note;
 
   const testConditions: ReportPayload["testConditions"] = {
     testDateDisplay: formatTestDateForReport(testDateSource, loc),
@@ -3338,12 +3344,16 @@ export async function buildPresiometryPayload(
       updated_by: (test as { updated_by?: string | null }).updated_by ?? null,
     },
     measurements: (() => {
-      /** Rânduri refăcute dedesubt (o singură apariție pentru packer / axă / oră). */
+      /** Rânduri refăcute dedesubt (o singură apariție pentru diametre / axă / oră). */
       const PRESIOMETRY_ROW_KEYS_PREPENDED = new Set([
         "pmt_series_axis",
         "pmt_packer_diameter_mm",
+        "pmt_borehole_diameter_mm",
+        "pmt_probe_diameter_mm",
         "pmt_seating_r_mm",
         "pmt_start_time",
+        "pmt_pl_mpa",
+        "pmt_pf_mpa",
       ]);
 
       const base = (measurements ?? [])
@@ -3360,24 +3370,62 @@ export async function buildPresiometryPayload(
           };
         });
 
-      const packer = (measurements ?? []).find((m) => (m as { key?: unknown }).key === "pmt_packer_diameter_mm") as
-        | { value?: unknown }
-        | undefined;
-      const packerVal = packer?.value;
-      const packerNum = packerVal == null ? NaN : Number(packerVal);
+      const measVal = (key: string): number => {
+        const row = (measurements ?? []).find((m) => (m as { key?: unknown }).key === key) as
+          | { value?: unknown }
+          | undefined;
+        const n = row?.value == null ? NaN : Number(row.value);
+        return Number.isFinite(n) && n > 0 ? n : NaN;
+      };
+
       const packerMmDefault = 70;
-      const packerMm = Number.isFinite(packerNum) && packerNum > 0 ? packerNum : packerMmDefault;
+      const probeMmDefault = 76;
+      const packerMm = (() => {
+        const n = measVal("pmt_packer_diameter_mm");
+        return Number.isFinite(n) ? n : packerMmDefault;
+      })();
+      const probeMm = (() => {
+        const n = measVal("pmt_probe_diameter_mm");
+        return Number.isFinite(n) ? n : probeMmDefault;
+      })();
+      const boreholeMm = measVal("pmt_borehole_diameter_mm");
+      const plMpa = measurementNumber(measRows, "pmt_pl_mpa");
+      const pfMpa = measurementNumber(measRows, "pmt_pf_mpa");
 
       const axisValue = xKind === "radius_mm" ? tr.series_axis_pr : tr.series_axis_pv;
       const axisNote = { label: tr.series_imported, key: "pmt_series_axis", value: axisValue, unit: "" };
 
       const out = [...base];
-      // Always show these rows for consistent presiometry reports (use defaults/"—" when missing).
+      // Always show geometry + series rows (defaults / "—" when missing).
       out.unshift({ label: tr.start_time_csv, key: "pmt_start_time", value: startTime || "—", unit: "" });
+      out.unshift({
+        label: pmtMeasurementLabelForLocale("pmt_pf_mpa", "Presiune de curgere p_f", loc),
+        key: "pmt_pf_mpa",
+        value: Number.isFinite(pfMpa) && pfMpa > 0 ? fmtNum(pfMpa, 3) : "—",
+        unit: "MPa",
+      });
+      out.unshift({
+        label: pmtMeasurementLabelForLocale("pmt_pl_mpa", "Presiune limită pₗ", loc),
+        key: "pmt_pl_mpa",
+        value: Number.isFinite(plMpa) && plMpa > 0 ? fmtNum(plMpa, 3) : "—",
+        unit: "MPa",
+      });
       out.unshift({
         label: tr.packer_diameter,
         key: "pmt_packer_diameter_mm",
         value: fmtNum(packerMm, 0),
+        unit: "mm",
+      });
+      out.unshift({
+        label: tr.probe_diameter,
+        key: "pmt_probe_diameter_mm",
+        value: fmtNum(probeMm, 0),
+        unit: "mm",
+      });
+      out.unshift({
+        label: tr.borehole_diameter,
+        key: "pmt_borehole_diameter_mm",
+        value: Number.isFinite(boreholeMm) ? fmtNum(boreholeMm, 0) : "—",
         unit: "mm",
       });
       out.unshift({
@@ -3413,6 +3461,8 @@ export async function buildPresiometryPayload(
     reportNormRef,
     reportPageTitle,
     conformanceStatement,
+    dataCorrectionNote,
+    calibrationAnnexNote,
     testConditions,
     signatures,
     i18n: tr,

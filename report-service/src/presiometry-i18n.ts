@@ -48,6 +48,10 @@ const EN: Record<string, string> = {
   packer_diameter: "Packer diameter (NX)",
   formula_version: "Calculation engine version",
   conf_statement: "The test was performed in accordance with SR EN ISO 22476-5.",
+  data_correction_note:
+    "The imported pressure–deformation series is already corrected by the field unit (membrane and hydraulic system calibrations applied before export). The laboratory does not re-apply those corrections in post-processing.",
+  calibration_annex_note:
+    "Membrane calibration data, hydraulic-system corrections and any related adjustment records are provided separately as an annex, when required.",
   program_a: "Program A",
   program_b: "Program B",
   program_c: "Program C",
@@ -59,6 +63,8 @@ const EN: Record<string, string> = {
     "Report §8.1 k: description / sketch / photo of the specimen showing the failure type (where applicable).",
   specimen_before: "Before test",
   specimen_after: "After test",
+  borehole_diameter: "Typical borehole diameter",
+  probe_diameter: "Test probe / chamber diameter",
 };
 
 const RO: Record<string, string> = {
@@ -105,6 +111,10 @@ const RO: Record<string, string> = {
   packer_diameter: "Diametru packer (NX)",
   formula_version: "Versiune formule motor calcule",
   conf_statement: "Încercarea a fost efectuată conform SR EN ISO 22476-5.",
+  data_correction_note:
+    "Seria presiune–deformație importată este deja corectată de aparat (calibrările membranei și ale sistemului hidraulic aplicate înainte de export). Laboratorul nu reaplică aceste corecții la procesarea datelor.",
+  calibration_annex_note:
+    "Datele de calibrare a membranei, corecțiile sistemului hidraulic și eventualele ajustări aferente se prezintă separat, ca anexă, când sunt solicitate.",
   program_a: "Program A",
   program_b: "Program B",
   program_c: "Program C",
@@ -116,6 +126,8 @@ const RO: Record<string, string> = {
     "Raport §8.1 k: descriere / schiță / fotografie a probei care indică tipul de rupere.",
   specimen_before: "Înainte de încercare",
   specimen_after: "După încercare",
+  borehole_diameter: "Diametru tipic al forajului",
+  probe_diameter: "Diametru pe coloana de încercare (sondă / cameră)",
 };
 
 export function presiometryStaticCopy(locale: ReportLocale): Record<string, string> {
@@ -178,6 +190,8 @@ export function pmtTableLabelForLocale(key: string, labelRo: string, locale: Rep
     [/^pmt_b_load1_r2$/, "GL1: R² — fit quality of linear regression on GL1"],
     [/^pmt_pmin_mpa$/, "Minimum pressure in series p_min"],
     [/^pmt_pmax_mpa$/, "Maximum pressure in series p_max"],
+    [/^pmt_pl_mpa$/, "Limit pressure pₗ"],
+    [/^pmt_pf_mpa$/, "Creep / yield pressure p_f"],
     [/^pmt_loops_detected$/, "Detected loops (auto)"],
     [/^pmt_depth_m$/, "Test depth z"],
     [/^pmt_p0_kpa$/, "First point: p₀"],
@@ -225,7 +239,10 @@ export function pmtMeasurementLabelForLocale(key: string, labelRo: string, local
   if (k === "pmt_packer_diameter_mm") return EN.packer_diameter;
   if (k === "pmt_probe_type") return "Probe / pressuremeter type (optional)";
   if (k === "pmt_seating_r_mm") return "Seating R (mm)";
-  if (k === "pmt_borehole_diameter_mm") return "Borehole diameter (optional)";
+  if (k === "pmt_borehole_diameter_mm") return EN.borehole_diameter;
+  if (k === "pmt_probe_diameter_mm") return EN.probe_diameter;
+  if (k === "pmt_pl_mpa") return "Limit pressure pₗ (optional)";
+  if (k === "pmt_pf_mpa") return "Creep / yield pressure p_f (optional)";
   if (k === "pmt_initial_volume_cm3") return "Initial volume V₀ (optional)";
   if (k === "pmt_temperature_c") return "Temperature (optional)";
   if (k === "pmt_notes_field") return "Field notes (optional)";
